@@ -27,6 +27,8 @@ npm start   # http://localhost:8765, needs Node 22.13+
 
 Without the server, sessions are saved in the browser.
 
+GitHub Pages automatically builds and deploys pushes to `main`. The build stamps script and CSS URLs with a content hash and generates `version.json`; no manual versioning is needed. The app checks for a newer version on startup and reloads once while preserving the comparison URL. Failed update checks do not prevent startup. Local use needs no build step; `npm run build` optionally generates the deployable `_site/` folder.
+
 ## Project Structure
 
 | File | Purpose |

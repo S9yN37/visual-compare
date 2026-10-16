@@ -118,9 +118,9 @@ test('selection refits after the info card opens or closes', () => {
   assert.deepEqual(fitted, [true, false]);
 });
 
-test('mobile info and edit cards stay in the scene container above the canvas', () => {
+test('all mobile cards stay in the scene container above the canvas', () => {
   let mobile = true;
-  const panels = [{}, {}], scene = {};
+  const panels = Array.from({ length: 6 }, () => ({})), scene = {};
   const stage = {
     before(card) { assert.ok(panels.includes(card)); card.parentElement = scene; },
     append(card) { assert.ok(panels.includes(card)); card.parentElement = stage; },

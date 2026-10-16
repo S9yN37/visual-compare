@@ -1,0 +1,20 @@
+import { createHash } from 'node:crypto';
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = process.argv[2] || dirname(dirname(fileURLToPath(import.meta.url)));
+const output = join(root, '_site');
+const assets = ['app.js', 'items.js', 'style.css'];
+let html = readFileSync(join(root, 'index.html'), 'utf8');
+const hash = createHash('sha256').update(html);
+for (const asset of assets) hash.update(asset).update(readFileSync(join(root, asset)));
+const version = hash.digest('hex').slice(0, 12);
+html = html.replace('<meta charset="utf-8">', `<meta charset="utf-8">\n<meta name="app-version" content="${version}">`)
+  .replace(/((?:src|href)="(?:app\.js|items\.js|style\.css))"/g, `$1?v=${version}"`);
+rmSync(output, { recursive: true, force: true });
+mkdirSync(output);
+for (const asset of assets) copyFileSync(join(root, asset), join(output, asset));
+writeFileSync(join(output, 'index.html'), html);
+writeFileSync(join(output, 'version.json'), JSON.stringify({ version }) + '\n');
+console.log(`App version: ${version}`);

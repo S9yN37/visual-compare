@@ -125,7 +125,7 @@ input[type=checkbox] { width: auto; box-shadow: none; accent-color: var(--accent
 .info .actions .remove { color: var(--danger); }
 .info .actions .remove:hover { border-color: var(--danger); }
 
-.popover { right: 14px; top: 14px; width: 280px; max-width: calc(100% - 28px); max-height: calc(100% - 28px); overflow-y: auto; display: grid; gap: 10px; }
+.popover { right: 14px; top: 14px; width: 280px; max-width: calc(100% - 28px); max-height: calc(100% - 28px); overflow-y: auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .popover h3 { margin: 0; }
 .popover .hint { color: var(--muted); font-size: 12px; margin-top: -6px; }
 #library { width: 340px; height: calc(100% - 28px); display: flex; flex-direction: column; overflow: hidden; }
@@ -135,16 +135,18 @@ input[type=checkbox] { width: auto; box-shadow: none; accent-color: var(--accent
 .popover .segmented { display: flex; }
 .popover .segmented button { flex: 1; justify-content: center; }
 #sessionForm { display: flex; gap: 6px; }
-#sessionList { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+#sessionForm input { flex: 1; min-width: 0; }
+#sessionForm button { flex: none; }
+#sessionList { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 #sessionList li { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; }
 #sessionList li:hover { background: var(--background); }
 #sessionList button.load { flex: 1; text-align: left; background: none; border: 0; padding: 0; min-width: 0; }
 #sessionList b { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#sessionList small { color: var(--muted); font-size: 12px; white-space: nowrap; }
+#sessionList small { display: block; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 12px; white-space: nowrap; }
 #sessionList .rename, #sessionList .delete { border: 0; background: none; color: var(--muted); padding: 2px; border-radius: 6px; }
 #sessionList .rename:hover { color: var(--accent); }
 #sessionList .delete:hover, #sessionList .delete.confirm { color: var(--danger); font-size: 12px; font-weight: 600; }
-#sessionList .rename-field { flex: 1; padding: 4px 8px; }
+#sessionList .rename-field { flex: 1; min-width: 0; padding: 4px 8px; }
 #sessionList .none { color: var(--muted); }
 #shortcuts dd { margin: 0; }
 kbd { display: inline-block; min-width: 1.6em; text-align: center; font-size: 12px; font-weight: 500; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; }
@@ -171,7 +173,9 @@ kbd { display: inline-block; min-width: 1.6em; text-align: center; font-size: 12
   .app, .main { height: auto; }
   .scene { flex: none; }
   .stage { flex: none; height: auto; aspect-ratio: 4 / 3; }
-  .scene > .info, .scene > #custom { position: static; flex: none; width: calc(100% - 28px); max-width: none; max-height: none; margin: 14px 14px 0; overflow: visible; }
+  .scene > .card { position: static; flex: none; width: calc(100% - 28px); max-width: calc(100% - 28px); max-height: none; margin: 14px 14px 0; overflow: visible; }
+  .scene > #library { height: auto; }
+  .scene > #library .results { flex: 0 1 auto; max-height: 40svh; }
   .row:has([data-option=labels]) { display: none; }
   #selected { max-height: none; }
 }

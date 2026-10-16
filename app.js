@@ -5,6 +5,26 @@
   const escapeHtml = text => String(text).replace(/[&<>"']/g, character => `&#${character.charCodeAt(0)};`);
   const isPositive = value => Number.isFinite(value) && value > 0;
 
+  async function checkForUpdate() {
+    const version = find('meta[name="app-version"]')?.content;
+    if (!version || !/^https?:$/.test(location.protocol)) return false;
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 3000);
+    try {
+      const url = new URL('version.json', document.baseURI);
+      url.searchParams.set('_', Date.now());
+      const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
+      if (!response.ok) return false;
+      const latest = (await response.json()).version, page = new URL(location.href);
+      if (typeof latest !== 'string' || !/^[a-f0-9]{12}$/.test(latest) || latest === version || page.searchParams.get('_v') === latest) return false;
+      page.searchParams.set('_v', latest);
+      location.replace(page.href);
+      return true;
+    } catch {
+      return false;
+    } finally { clearTimeout(timer); }
+  }
+  if (await checkForUpdate()) return;
+
   const [THREE, { OrbitControls }, { CSS2DRenderer, CSS2DObject }] = await Promise.all([
     import('three'), import('three/addons/controls/OrbitControls.js'), import('three/addons/renderers/CSS2DRenderer.js')]);
 
@@ -420,7 +440,7 @@
 
   function moveSceneCards() {
     const mobile = mobileLayout.matches;
-    for (const panel of findAll('#info, #custom')) {
+    for (const panel of findAll('.scene .card')) {
       if (mobile) stage.before(panel);
       else if (panel.parentElement !== stage) stage.append(panel);
     }
@@ -1025,7 +1045,7 @@
     if (next !== pickedIndex) pick(next);
   };
   const help = find('#shortcuts');
-  const toggleHelp = () => { const opening = help.hidden; closePopovers(); help.hidden = !opening; };
+  const toggleHelp = () => { const opening = help.hidden; closePopovers(); help.hidden = !opening; fitCamera(); };
   // digits follow the toolbar order: views, then layouts; an action returning false leaves the key to the browser
   const SHORTCUTS = [
     ...[...findAll('.tools [data-setting]')].map((button, index) => forButton(String(index + 1), button)),
