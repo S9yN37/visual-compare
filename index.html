@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visual Compare</title>
+<meta name="description" content="Compare the real-world size of phones, tablets, consoles, everyday objects and your own dimensions, side by side in 3D.">
+<meta name="theme-color" content="#4f46e5">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 16.5l-5 -3l5 -3l5 3v5.5l-5 3z' /%3E %3Cpath d='M2 13.5v5.5l5 3' /%3E %3Cpath d='M7 16.545l5 -3.03' /%3E %3Cpath d='M17 16.5l-5 -3l5 -3l5 3v5.5l-5 3z' /%3E %3Cpath d='M12 19l5 3' /%3E %3Cpath d='M17 16.5l5 -3' /%3E %3Cpath d='M12 13.5v-5.5l-5 -3l5 -3l5 3v5.5' /%3E %3Cpath d='M7 5.03v5.455' /%3E %3Cpath d='M12 8l5 -3' /%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+<script>try { const theme = localStorage.getItem('visualCompare.theme'); if (theme) document.documentElement.dataset.theme = theme; } catch {}</script>
+<script src="items.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<noscript><p class="notice">Visual Compare needs JavaScript to run.</p></noscript>
+<div class="app">
+  <main class="main">
+    <div class="toolbar">
+      <div class="title">
+        <h1><svg viewBox="0 0 24 24"><path d="M7 16.5l-5 -3l5 -3l5 3v5.5l-5 3z" /> <path d="M2 13.5v5.5l5 3" /> <path d="M7 16.545l5 -3.03" /> <path d="M17 16.5l-5 -3l5 -3l5 3v5.5l-5 3z" /> <path d="M12 19l5 3" /> <path d="M17 16.5l5 -3" /> <path d="M12 13.5v-5.5l-5 -3l5 -3l5 3v5.5" /> <path d="M7 5.03v5.455" /> <path d="M12 8l5 -3" /></svg>Visual Compare <span>– Size Comparison</span></h1>
+        <p>Drag to orbit · scroll to zoom · right-drag to pan · click an object for details</p>
+      </div>
+      <div class="tools">
+        <div class="segmented">
+          <button data-popover="custom" title="Add Object"><svg viewBox="0 0 24 24"><path d="M12 5l0 14" /> <path d="M5 12l14 0" /></svg></button><button data-popover="library" title="Objects"><svg viewBox="0 0 24 24"><path d="M4 4m0 1a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1z" /> <path d="M14 4m0 1a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1z" /> <path d="M4 14m0 1a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1z" /> <path d="M14 14m0 1a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1z" /></svg></button><button class="danger" id="clear" title="Clear Scene"><svg viewBox="0 0 24 24"><path d="M4 7l16 0" /> <path d="M10 11l0 6" /> <path d="M14 11l0 6" /> <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /> <path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" /></svg></button>
+        </div>
+        <div class="segmented">
+          <button data-setting="view" data-value="isometric" title="3D View"><svg viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg></button><button data-setting="view" data-value="top" title="Top View"><svg viewBox="0 0 24 24"><path d="M12 3 20 7.5 12 12 4 7.5z" fill="currentColor" stroke="none"/><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg></button><button data-setting="view" data-value="front" title="Front View"><svg viewBox="0 0 24 24"><path d="M4 7.5 12 12v9l-8-4.5z" fill="currentColor" stroke="none"/><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg></button><button data-setting="view" data-value="side" title="Side View"><svg viewBox="0 0 24 24"><path d="M20 7.5 12 12v9l8-4.5z" fill="currentColor" stroke="none"/><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg></button>
+        </div>
+        <div class="segmented">
+          <button data-setting="layout" data-value="row" title="Side by Side"><svg viewBox="0 0 24 24"><rect x="4" y="9" width="4" height="11" rx="1"/><rect x="10" y="5" width="4" height="15" rx="1"/><rect x="16" y="12" width="4" height="8" rx="1"/></svg></button><button data-setting="layout" data-value="stack" title="On Top of Each Other"><svg viewBox="0 0 24 24"><rect x="4" y="15" width="16" height="5" rx="1"/><rect x="6.5" y="9.5" width="11" height="5" rx="1"/><rect x="9" y="4" width="6" height="5" rx="1"/></svg></button><button data-setting="layout" data-value="line" title="One Behind Another"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="9" height="9" rx="1"/><path d="M8 11V7.5h9V16h-5"/><path d="M12 7.5V4h9v8.5h-4"/></svg></button><button data-setting="layout" data-value="nest" title="Nested"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="3" y="9" width="12" height="12" rx="2"/><rect x="3" y="15" width="6" height="6" rx="1"/></svg></button>
+        </div>
+        <div class="segmented">
+          <button data-popover="sessions" title="Sessions"><svg viewBox="0 0 24 24"><path d="M6 4h10l4 4v10a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2" /> <path d="M12 14m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /> <path d="M14 4l0 4l-6 0l0 -4" /></svg></button><button id="share" title="Copy Share Link"><svg viewBox="0 0 24 24"><path d="M9 15l6 -6" /> <path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464" /> <path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463" /></svg></button><button id="download" title="Download PNG"><svg viewBox="0 0 24 24"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" /> <path d="M7 11l5 5l5 -5" /> <path d="M12 4l0 12" /></svg></button>
+        </div>
+        <div class="segmented">
+          <button id="fit" title="Fit to View"><svg viewBox="0 0 24 24"><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /> <path d="M4 8v-2a2 2 0 0 1 2 -2h2" /> <path d="M4 16v2a2 2 0 0 0 2 2h2" /> <path d="M16 4h2a2 2 0 0 1 2 2v2" /> <path d="M16 20h2a2 2 0 0 0 2 -2v-2" /></svg></button><button id="ar" title="View in AR" hidden><svg viewBox="0 0 24 24"><path d="M4 8v-2a2 2 0 0 1 2 -2h2" /> <path d="M4 16v2a2 2 0 0 0 2 2h2" /> <path d="M16 4h2a2 2 0 0 1 2 2v2" /> <path d="M16 20h2a2 2 0 0 0 2 -2v-2" /> <path d="M12 12.5l4 -2.5" /> <path d="M8 10l4 2.5v4.5l4 -2.5v-4.5l-4 -2.5z" /> <path d="M8 10v4.5l4 2.5" /></svg></button><button id="fullscreen" title="Fullscreen"><svg viewBox="0 0 24 24"><path d="M16 4l4 0l0 4" /> <path d="M14 10l6 -6" /> <path d="M8 20l-4 0l0 -4" /> <path d="M4 20l6 -6" /> <path d="M16 20l4 0l0 -4" /> <path d="M14 14l6 6" /> <path d="M8 4l-4 0l0 4" /> <path d="M4 4l6 6" /></svg></button>
+        </div>
+        <button class="icon" data-popover="settings" title="Options"><svg viewBox="0 0 24 24"><path d="M14 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /> <path d="M4 6l8 0" /> <path d="M16 6l4 0" /> <path d="M8 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /> <path d="M4 12l2 0" /> <path d="M10 12l10 0" /> <path d="M17 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /> <path d="M4 18l11 0" /> <path d="M19 18l1 0" /></svg></button>
+      </div>
+    </div>
+
+    <div class="stage" id="stage">
+      <div id="empty" class="empty">Open Objects in the toolbar to pick things to compare to scale.</div>
+      <div id="scale" class="scale"></div>
+      <div id="info" class="card info" hidden></div>
+
+      <div id="library" class="card popover" hidden>
+        <h3>Objects</h3>
+        <label class="search">
+          <svg viewBox="0 0 24 24"><path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0" /> <path d="M21 21l-6 -6" /></svg>
+          <input id="search" type="search" placeholder="Search Objects" autocomplete="off">
+        </label>
+        <select id="category"></select>
+        <ul id="results" class="results"></ul>
+      </div>
+
+      <div id="custom" class="card popover" hidden>
+        <h3>Add Object</h3>
+        <form id="customForm">
+          <input name="name" placeholder="Name">
+          <div class="size">
+            <label>Size<input name="size" placeholder="380 x 158 x 8 mm" required autocomplete="off"></label>
+            <label>Unit<select name="unit"><option value="mm">mm</option><option value="cm">cm</option><option value="m">m</option><option value="in">in</option><option value="ft">ft</option></select></label>
+          </div>
+          <div class="size">
+            <label>Orientation
+              <select name="order">
+                <option value="auto">Auto: Thinnest Side Faces You</option>
+                <option value="whd">As Typed: Width × Height × Depth</option>
+                <option value="wdh">Width × Depth × Height</option>
+              </select>
+            </label>
+            <label>Corners<input name="radius" type="number" min="0" step="any" placeholder="0" title="Corner radius, same unit as the size"></label>
+          </div>
+          <small id="sizeHint" class="hint"></small>
+          <div class="actions">
+            <button class="primary" name="save">Add</button>
+            <button class="ghost" type="button" name="cancel" hidden>Cancel</button>
+          </div>
+        </form>
+      </div>
+
+      <div id="settings" class="card popover" hidden>
+        <h3>Options</h3>
+        <label class="row">Labels <input type="checkbox" data-option="labels"></label>
+        <label class="row">Perspective Camera <input type="checkbox" data-option="perspective"></label>
+        <label class="row">Auto-Rotate <input type="checkbox" data-option="autoRotate"></label>
+        <label class="row">Floor Grid <input type="checkbox" data-option="grid"></label>
+        <label class="row">Edges <input type="checkbox" data-option="edges"></label>
+        <label class="row">Sort by Volume <input type="checkbox" data-option="sort"></label>
+        <div class="column">Align Width
+          <div class="segmented"><button data-setting="alignX" data-value="left">Left</button><button data-setting="alignX" data-value="center">Center</button><button data-setting="alignX" data-value="right">Right</button></div>
+        </div>
+        <div class="column">Align Depth
+          <div class="segmented"><button data-setting="alignZ" data-value="back">Back</button><button data-setting="alignZ" data-value="center">Center</button><button data-setting="alignZ" data-value="front">Front</button></div>
+        </div>
+        <div class="column">Opacity
+          <div class="segmented"><button data-setting="opacity" data-value="0.25">25%</button><button data-setting="opacity" data-value="0.5">50%</button><button data-setting="opacity" data-value="0.75">75%</button><button data-setting="opacity" data-value="1">100%</button></div>
+        </div>
+        <div class="column">Spacing
+          <div class="segmented"><button data-setting="spacing" data-value="0">None</button><button data-setting="spacing" data-value="1">Tight</button><button data-setting="spacing" data-value="5">Normal</button><button data-setting="spacing" data-value="20">Wide</button></div>
+        </div>
+        <div class="column">Units
+          <div class="segmented"><button data-setting="unit" data-value="mm">mm</button><button data-setting="unit" data-value="cm">cm</button><button data-setting="unit" data-value="in">in</button></div>
+        </div>
+        <div class="column">Theme
+          <div class="segmented"><button data-theme="auto">Auto</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div>
+        </div>
+        <button id="reset" class="ghost">Reset Options</button>
+        <small class="hint">Press ? for keyboard shortcuts</small>
+      </div>
+
+      <div id="shortcuts" class="card popover" hidden></div>
+
+      <div id="sessions" class="card popover" hidden>
+        <h3>Sessions</h3>
+        <small id="sessionStore" class="hint"></small>
+        <form id="sessionForm">
+          <input name="name" placeholder="Session Name" required>
+          <button class="primary" name="save">Save</button>
+        </form>
+        <ul id="sessionList"></ul>
+      </div>
+      <div id="toast" class="toast" hidden></div>
+    </div>
+    <model-viewer id="arViewer" ar ar-modes="webxr quick-look" ar-scale="fixed" ar-placement="floor"></model-viewer>
+
+    <div class="tray">
+      <span id="count"></span>
+      <ul id="selected"></ul>
+    </div>
+  </main>
+</div>
+</body>
+</html>
