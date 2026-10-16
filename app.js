@@ -13,7 +13,9 @@
     plus: icon('<path d="M12 5l0 14" /> <path d="M5 12l14 0" />'),
     check: icon('<path d="M5 12l5 5l10 -10" />'),
     close: icon('<path d="M18 6l-12 12" /> <path d="M6 6l12 12" />'),
-    turn: icon('<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>'),
+    turn: icon('<path d="M12 3v18M19 9c2 1 3 2 3 3 0 3-4 5-10 5S2 15 2 12c0-2 2-3 5-4M4 5l3 3-3 3"/>'),
+    tip: icon('<path d="M3 12h18M9 5c1-2 2-3 3-3 3 0 5 4 5 10s-2 10-5 10c-2 0-3-2-4-5M5 20l3-3 3 3"/>'),
+    roll: icon('<path d="M9 9h6v6H9zM21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/>'),
     pencil: icon('<path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" /> <path d="M13.5 6.5l4 4" />'),
   };
   // golden-angle hues never repeat; chroma drops until the color fits sRGB
@@ -43,7 +45,7 @@
   };
 
   // all state is in the URL, so a link and a saved session are the same thing
-  const DEFAULTS = { view: 'isometric', layout: 'row', alignX: 'center', alignZ: 'center', unit: 'cm', labels: 1, grid: 1, edges: 1, opacity: 1, spacing: 1, sort: 0, autoRotate: 0, perspective: 0 };
+  const DEFAULTS = { view: 'isometric', layout: 'row', alignX: 'center', alignZ: 'center', unit: 'cm', labels: 1, grid: 1, opacity: 1, spacing: 1, sort: 0, autoRotate: 0, perspective: 0 };
   const REFIT_SETTINGS = new Set(['view', 'layout', 'alignX', 'alignZ', 'perspective', 'spacing', 'sort', 'labels']);
   const ARRANGE_AXIS = { row: 'x', line: 'z', stack: 'y' };
   const ALIGNMENTS = { left: 'min', back: 'min', center: 'center', right: 'max', front: 'max' };
@@ -92,8 +94,8 @@
     try { localStorage.setItem('visualCompare.last', query); } catch {}
     if (!rendered.length) setFitting(true);
     build();
-    if (refit) fitCamera();
     renderResults(); renderTray(); renderInfo(); syncControls();
+    if (refit) fitCamera();
   }
 
   const UNIT_FACTORS = { mm: 1, cm: 10, m: 1000, in: 25.4, inch: 25.4, inches: 25.4, '"': 25.4, '″': 25.4, ft: 304.8, foot: 304.8, feet: 304.8, "'": 304.8, '′': 304.8 };
@@ -159,6 +161,8 @@
   }
 
   const stage = find('#stage');
+  const mobileLayout = matchMedia('(max-width: 860px)');
+  const labelsVisible = () => settings.labels && !mobileLayout.matches;
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   const labelRenderer = new CSS2DRenderer();
@@ -192,7 +196,37 @@
     renderPending = false;
     renderer.render(scene, camera);
     labelRenderer.render(scene, camera);
+    layoutLabels();
   });
+
+  function layoutLabels() {
+    const stageBox = stage.getBoundingClientRect(), placed = [];
+    const elements = rendered.map(item => item.labelElement).filter(Boolean);
+    for (const element of elements) element.style.translate = '';
+    const labels = elements.flatMap(labelElement => {
+      const box = labelElement.firstChild.hidden ? labelElement.lastElementChild : labelElement.firstChild;
+      const rectangle = box.getBoundingClientRect();
+      return rectangle.width && rectangle.height && getComputedStyle(box).visibility !== 'hidden' ? [{ labelElement, rectangle }] : [];
+    }).sort((a, b) => a.rectangle.top - b.rectangle.top);
+    for (const { labelElement, rectangle } of labels) {
+      const left = stageBox.left + 6, right = stageBox.right - rectangle.width - 6;
+      const top = stageBox.top + 6, bottom = stageBox.bottom - rectangle.height - 36;
+      let x = Math.max(left, Math.min(rectangle.left, right)), y = Math.max(top, Math.min(rectangle.top, bottom));
+      const fits = point => placed.every(other => point.left >= other.right + 4 || point.left + rectangle.width + 4 <= other.left
+        || point.top >= other.bottom + 4 || point.top + rectangle.height + 4 <= other.top);
+      if (!fits({ left: x, top: y })) {
+        const xs = [x, left, right, ...placed.flatMap(other => [other.right + 4, other.left - rectangle.width - 4])];
+        const ys = [y, top, bottom, ...placed.flatMap(other => [other.bottom + 4, other.top - rectangle.height - 4])];
+        const candidates = xs.flatMap(left => ys.map(top => ({ left, top })))
+          .filter(point => point.left >= left && point.left <= right && point.top >= top && point.top <= bottom)
+          .sort((a, b) => (a.left - x) ** 2 + (a.top - y) ** 2 - (b.left - x) ** 2 - (b.top - y) ** 2);
+        const free = candidates.find(fits);
+        if (free) { x = free.left; y = free.top; }
+      }
+      labelElement.style.translate = `${x - rectangle.left}px ${y - rectangle.top}px`;
+      placed.push({ left: x, right: x + rectangle.width, top: y, bottom: y + rectangle.height });
+    }
+  }
 
   function createGeometry({ width, height, depth, radius, shape }) {
     if (shape === 'cylinder') return new THREE.CylinderGeometry(width / 2, width / 2, height, 64);
@@ -228,7 +262,7 @@
         color: rgb, roughness: .5, metalness: .05, transparent: opacity < 1, opacity, depthWrite: opacity >= 1,
         emissiveIntensity: .35, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
       }));
-      if (settings.edges) mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry, 20),
+      mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry, 20),
         new THREE.LineBasicMaterial({ color: 0x0f172a, transparent: true, opacity: .35 })));
       mesh.rotation.set(entry.tip * Math.PI / 2, entry.turn * Math.PI / 2, entry.roll * Math.PI / 2, 'YXZ');
       mesh.userData = { index, volume };
@@ -254,17 +288,32 @@
         if (axis === arrangeAxis) { holder.position[axis] = cursor - min[axis]; cursor += item.size[axis] + spacing; }
         else holder.position[axis] = alignment[axis] === 'min' ? -min[axis] : alignment[axis] === 'max' ? -max[axis] : -(min[axis] + max[axis]) / 2;
       }
-      if (settings.labels) {
-        item.labelElement = document.createElement('div');
-        item.labelElement.className = 'label';
-        item.labelElement.style.setProperty('--color', item.color);
-        item.labelElement.innerHTML = `<div><b>${escapeHtml(item.entry.definition.name)}</b><span>${describeSize(item.entry.definition, item.size.toArray())}</span></div>`;
-        const label = new CSS2DObject(item.labelElement);
-        if (isNested) { label.position.set(max.x, max.y, max.z); label.center.set(0, 1); }
-        else if (isStacked) { label.position.set(max.x, (min.y + max.y) / 2, (min.z + max.z) / 2); label.center.set(0, .5); }
-        else { label.position.set((min.x + max.x) / 2, max.y, (min.z + max.z) / 2); label.center.set(.5, 1); }
-        holder.add(label);
-      }
+      item.labelElement = document.createElement('div');
+      item.labelElement.className = labelsVisible() ? 'label' : 'label controls-only';
+      item.labelElement.style.setProperty('--color', item.color);
+      item.labelElement.innerHTML = `<div role="button" tabindex="0" aria-label="Select ${escapeHtml(item.entry.definition.name)}"><b>${escapeHtml(item.entry.definition.name)}</b><span>${describeSize(item.entry.definition, item.size.toArray())}</span></div>
+        <div class="label-actions" role="group" aria-label="Object orientation">
+          <button data-action="turn" title="Turn: rotate around the vertical axis (Y)" aria-label="Turn around the vertical axis">${ICONS.turn}</button>
+          <button data-action="tip" title="Tip: rotate forwards (X axis)" aria-label="Tip forwards">${ICONS.tip}</button>
+          <button data-action="roll" title="Roll: rotate in the front plane (Z axis)" aria-label="Roll in the front plane">${ICONS.roll}</button>
+        </div>`;
+      item.labelElement.firstChild.hidden = !labelsVisible();
+      item.labelElement.addEventListener('click', event => {
+        const button = event.target.closest('[data-action]');
+        if (button) applyAction(item.index, button.dataset.action);
+        else if (event.target.closest('[role=button]')) pick(item.index);
+      });
+      item.labelElement.firstChild.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        pick(item.index);
+      });
+      for (const event of ['pointerenter', 'pointerleave', 'focusin', 'focusout']) item.labelElement.addEventListener(event, requestRender);
+      const label = new CSS2DObject(item.labelElement);
+      if (isNested) { label.position.set(max.x, max.y, max.z); label.center.set(0, 1); }
+      else if (isStacked) { label.position.set(max.x, (min.y + max.y) / 2, (min.z + max.z) / 2); label.center.set(0, .5); }
+      else { label.position.set((min.x + max.x) / 2, max.y, (min.z + max.z) / 2); label.center.set(.5, 1); }
+      holder.add(label);
       world.add(holder);
     }
     clipToScene();
@@ -288,6 +337,7 @@
       const picked = item.index === pickedIndex;
       item.mesh.material.emissive.set(picked ? item.rgb : 0);
       item.labelElement?.classList.toggle('picked', picked);
+      item.labelElement?.firstChild.setAttribute('aria-pressed', picked);
     }
     requestRender();
   }
@@ -310,8 +360,8 @@
     // orbiting away from Top, Front or Side leaves a free 3D view
     if (!controls.autoRotate && direction().distanceTo(directionBefore) > .001 && settings.view !== 'isometric') { settings.view = fittedView = 'isometric'; commit(false); }
   });
-  function fitCamera() {
-    if (!fitting) return;
+  function fitCamera(force = false) {
+    if (!fitting && !force) return;
     // keep the orbit the user dragged to, unless the view preset changed
     const direction = fittedView === settings.view
       ? camera.position.clone().sub(controls.target).normalize()
@@ -328,25 +378,31 @@
     camera.updateMatrixWorld();
     const points = corners(bounds).map(point => point.applyMatrix4(camera.matrixWorldInverse));
     const extent = axis => Math.max(...points.map(point => point[axis])) - Math.min(...points.map(point => point[axis]));
-    // leave room for an open card: info on the left, popovers on the right
     const info = find('#info'), popover = find('.popover:not([hidden])');
-    let padLeft = info.hidden ? 0 : info.offsetWidth + 28, padRight = popover ? popover.offsetWidth + 28 : 0;
+    const mobile = mobileLayout.matches;
+    let padLeft = info.hidden || mobile ? 0 : info.offsetWidth + 28, padRight = popover?.parentElement === stage ? popover.offsetWidth + 28 : 0;
     if (stage.clientWidth - padLeft - padRight < 240) padLeft = padRight = 0;
-    const width = stage.clientWidth - padLeft - padRight, height = stage.clientHeight, labelRoom = settings.labels ? 70 : 20;
+    const labelRoom = labelsVisible() ? Math.max(100, ...rendered.map(item => (item.labelElement?.offsetHeight || 0) + 20)) : 60;
+    const width = stage.clientWidth - padLeft - padRight, height = stage.clientHeight;
     let unitsPerPixel;
     if (settings.perspective) {
       const tangent = Math.tan(THREE.MathUtils.degToRad(perspectiveCamera.fov / 2));
-      const distance = Math.max(extent('x') * height / width, extent('y') * height / (height - labelRoom)) / 2 / tangent * 1.2 + extent('z') / 2;
+      const distance = Math.max(extent('x') * height / width, extent('y') * height / Math.max(1, height - labelRoom)) / 2 / tangent * 1.2 + extent('z') / 2;
       camera.position.copy(center).addScaledVector(direction, distance);
       unitsPerPixel = 2 * distance * tangent / height;
     } else {
-      orthographicCamera.zoom = Math.min(width / extent('x'), (height - labelRoom) / extent('y')) * .85;
+      orthographicCamera.zoom = Math.min(width / extent('x'), Math.max(1, height - labelRoom) / extent('y')) * .85;
       unitsPerPixel = 1 / orthographicCamera.zoom;
     }
     camera.updateProjectionMatrix();
     const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0), shift = (padRight - padLeft) / 2 * unitsPerPixel;
     controls.target.copy(center).addScaledVector(right, shift);
     camera.position.addScaledVector(right, shift);
+    if (labelsVisible()) {
+      const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1), shiftDown = labelRoom / 2 * unitsPerPixel;
+      controls.target.addScaledVector(up, shiftDown);
+      camera.position.addScaledVector(up, shiftDown);
+    }
     clipToScene();
     controls.update();
     requestRender();
@@ -362,6 +418,14 @@
     camera.updateProjectionMatrix();
   }
 
+  function moveSceneCards() {
+    const mobile = mobileLayout.matches;
+    for (const panel of findAll('#info, #custom')) {
+      if (mobile) stage.before(panel);
+      else if (panel.parentElement !== stage) stage.append(panel);
+    }
+  }
+
   function resize() {
     const width = stage.clientWidth, height = stage.clientHeight;
     if (!width || !height) return;
@@ -375,26 +439,47 @@
     requestRender();
   }
   new ResizeObserver(resize).observe(stage);
+  moveSceneCards();
+  mobileLayout.addEventListener('change', () => { moveSceneCards(); build(); resize(); });
 
   // a click (not a drag) picks the smallest object under the pointer, so nested ones stay reachable
   const raycaster = new THREE.Raycaster(), pointerDown = { x: 0, y: 0 };
-  renderer.domElement.addEventListener('pointerdown', event => Object.assign(pointerDown, { x: event.clientX, y: event.clientY }));
-  renderer.domElement.addEventListener('pointerup', event => {
-    if (event.button !== 0 || Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 4) return;
+  function objectUnderPointer(event) {
     const rectangle = renderer.domElement.getBoundingClientRect();
     raycaster.setFromCamera(new THREE.Vector2(
       (event.clientX - rectangle.left) / rectangle.width * 2 - 1,
       -(event.clientY - rectangle.top) / rectangle.height * 2 + 1), camera);
     const hits = raycaster.intersectObjects(world.children, true).filter(intersection => intersection.object.isMesh);
     const hit = hits.sort((first, second) => first.object.userData.volume - second.object.userData.volume)[0];
-    pick(hit ? hit.object.userData.index : null);
+    return hit ? hit.object.userData.index : null;
+  }
+  renderer.domElement.addEventListener('pointerdown', event => Object.assign(pointerDown, { x: event.clientX, y: event.clientY }));
+  renderer.domElement.addEventListener('click', event => {
+    if (event.button !== 0 || Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 4) return;
+    pick(objectUnderPointer(event));
+  });
+  renderer.domElement.addEventListener('pointermove', event => {
+    const index = event.buttons ? null : objectUnderPointer(event);
+    for (const item of rendered) item.labelElement?.classList.toggle('hovered', item.index === index);
+    renderer.domElement.style.cursor = index === null ? '' : 'pointer';
+    requestRender();
+  });
+  renderer.domElement.addEventListener('pointerleave', () => {
+    for (const item of rendered) item.labelElement?.classList.remove('hovered');
+    renderer.domElement.style.cursor = '';
+    requestRender();
   });
 
   function pick(index) {
     pickedIndex = pickedIndex === index ? null : index;
     highlightPicked();
-    findAll('#selected .chip').forEach(chip => chip.classList.toggle('picked', +chip.dataset.index === pickedIndex));
+    findAll('#selected .chip').forEach(chip => {
+      const picked = +chip.dataset.index === pickedIndex;
+      chip.classList.toggle('picked', picked);
+      chip.setAttribute('aria-pressed', picked);
+    });
     renderInfo();
+    fitCamera();
   }
 
   function renderResults() {
@@ -411,10 +496,8 @@
   }
 
   function renderTray() {
-    find('#count').textContent = entries.length ? `${entries.length} in view` : '';
-    find('#selected').innerHTML = rendered.map(item => `<li class="chip ${pickedIndex === item.index ? 'picked' : ''}" data-index="${item.index}" style="--color:${item.color}" draggable="true" title="Drag to reorder">
-      <i></i><span><b>${escapeHtml(item.entry.definition.name)}</b><small>${describeSize(item.entry.definition, item.size.toArray())}</small></span>
-      <button data-action="edit" title="Edit">${ICONS.pencil}</button><button data-action="turn" title="Turn 90°">${ICONS.turn}</button><button data-action="remove" title="Remove">${ICONS.close}</button></li>`).join('');
+    find('#selected').innerHTML = rendered.map(item => `<li class="chip ${pickedIndex === item.index ? 'picked' : ''}" data-index="${item.index}" style="--color:${item.color}" draggable="true" role="button" tabindex="0" aria-pressed="${pickedIndex === item.index}" title="Drag to reorder">
+      <i></i><div><b>${escapeHtml(item.entry.definition.name)}</b><small>${describeSize(item.entry.definition, item.size.toArray())}</small></div></li>`).join('');
   }
 
   function renderInfo() {
@@ -436,9 +519,6 @@
       </dl>
       ${comparisons ? `<ul class="comparisons">${comparisons}</ul>` : ''}
       <div class="actions">
-        <button class="ghost" data-action="turn" title="Rotate around the vertical axis">Turn</button>
-        <button class="ghost" data-action="tip" title="Tip over forwards">Tip</button>
-        <button class="ghost" data-action="roll" title="Rotate in the front plane">Roll</button>
         <button class="ghost" data-action="edit" title="Change name or size">Edit</button>
         <button class="ghost remove" data-action="remove">Remove</button>
       </div>`;
@@ -456,9 +536,14 @@
   function applyAction(index, action) {
     if (action === 'edit') return startEditing(index);
     if (action === 'remove') return removeEntries(index, 1);
-    if (action === 'close') pickedIndex = null;
-    else entries[index][action] ^= 1;
-    commit(action !== 'close');
+    if (action === 'close') return pick(index);
+    const focused = document.activeElement?.closest('.label-actions button');
+    entries[index][action] ^= 1;
+    commit(true);
+    if (focused) {
+      const button = rendered[index]?.labelElement.querySelector(`[data-action="${action}"]`);
+      requestAnimationFrame(() => button?.focus({ preventScroll: true }));
+    }
   }
 
   function toggle(key) {
@@ -483,6 +568,7 @@
     toastTimer = setTimeout(() => element.hidden = true, undo ? 6000 : 1800);
   }
   function removeEntries(start, count) {
+    if (editing) closePopovers();
     const removed = entries.splice(start, count);
     pickedIndex = null;
     commit(true);
@@ -628,7 +714,7 @@
     const size = readCustomForm();
     find('#sizeHint').textContent = !customForm.elements.size.value.trim() ? '' : !size ? 'Enter three numbers, e.g. 380 x 158 x 8 mm'
       : `${formatDimensions(size.values)} W × H × D · ${size.detectedUnit ? `${size.detectedUnit} detected` : `${size.unit} assumed`}`;
-    if (editing && validCustomSize(size)) { entries[editing.index].definition = customFormDefinition(size); commit(false); }
+    if (editing && validCustomSize(size)) { entries[editing.index].definition = customFormDefinition(size); commit(true); }
   });
   // editing turns any object into a custom one; changes preview live and revert on cancel
   function setEditing(state) {
@@ -655,7 +741,7 @@
     setEditing(null);
     customForm.reset();
     find('#sizeHint').textContent = '';
-    commit(false);
+    commit(true);
   }
   customForm.addEventListener('submit', event => {
     event.preventDefault();
@@ -678,13 +764,19 @@
 
   const tray = find('#selected');
   tray.addEventListener('click', event => {
-    const chip = event.target.closest('.chip'), action = event.target.closest('[data-action]');
+    const chip = event.target.closest('.chip');
     if (!chip) return;
-    action ? applyAction(+chip.dataset.index, action.dataset.action) : pick(+chip.dataset.index);
+    pick(+chip.dataset.index);
+  });
+  tray.addEventListener('keydown', event => {
+    const chip = event.target.closest('.chip');
+    if (!chip || (event.key !== 'Enter' && event.key !== ' ')) return;
+    event.preventDefault();
+    pick(+chip.dataset.index);
   });
   tray.addEventListener('dblclick', event => {
     const chip = event.target.closest('.chip');
-    if (chip && !event.target.closest('[data-action]')) startEditing(+chip.dataset.index);
+    if (chip) startEditing(+chip.dataset.index);
   });
   let dragIndex = null;
   tray.addEventListener('dragstart', event => {
@@ -703,15 +795,21 @@
     const chip = event.target.closest('.chip');
     if (!chip || dragIndex === null) return;
     event.preventDefault();
-    const picked = entries[pickedIndex], [moved] = entries.splice(dragIndex, 1);
+    const picked = entries[pickedIndex], edited = editing && entries[editing.index], [moved] = entries.splice(dragIndex, 1);
     entries.splice(+chip.dataset.index, 0, moved);
     pickedIndex = picked ? entries.indexOf(picked) : null;
+    if (editing) editing.index = entries.indexOf(edited);
     settings.sort = 0;
     commit(true);
   });
-  find('#info').addEventListener('click', event => {
+  const infoPanel = find('#info');
+  let pressedInfoAction = null;
+  infoPanel.addEventListener('pointerdown', event => { pressedInfoAction = event.target.closest('[data-action]'); });
+  infoPanel.addEventListener('pointercancel', () => { pressedInfoAction = null; });
+  infoPanel.addEventListener('click', event => {
     const action = event.target.closest('[data-action]');
-    if (action) applyAction(pickedIndex, action.dataset.action);
+    if (action && (event.detail === 0 || action === pressedInfoAction)) applyAction(pickedIndex, action.dataset.action);
+    pressedInfoAction = null;
   });
 
   findAll('[data-setting]').forEach(button => button.addEventListener('click', () => {
@@ -723,6 +821,7 @@
     settings[input.dataset.option] = +input.checked;
     if (input.dataset.option === 'perspective') setFitting(true);
     commit(REFIT_SETTINGS.has(input.dataset.option));
+    if (input.dataset.option === 'labels' && input.checked && !fitting) fitCamera(true);
   }));
   find('#reset').addEventListener('click', () => {
     findAll('#settings [data-setting], #settings [data-option]').forEach(control => {
@@ -737,6 +836,7 @@
     findAll('.popover').forEach(popover => popover.hidden = true);
     findAll('[data-popover]').forEach(button => button.classList.remove('active'));
     if (editing) cancelEditing();
+    fitCamera();
   };
   findAll('[data-popover]').forEach(button => button.addEventListener('click', () => {
     const popover = find('#' + button.dataset.popover), opening = popover.hidden;
@@ -746,8 +846,11 @@
     if (opening && popover.id === 'sessions') refreshSessions(() => sessions.list());
     if (opening && popover.id === 'custom') customForm.elements.name.focus();
     if (opening && popover.id === 'library') find('#search').focus();
+    fitCamera();
   }));
-  document.addEventListener('pointerdown', event => { if (!event.target.closest('.popover, [data-popover]')) closePopovers(); });
+  document.addEventListener('click', event => {
+    if (!event.composedPath().some(element => element.matches?.('.card, .label, [data-popover]'))) closePopovers();
+  });
 
   find('#share').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(location.href); toast('Link copied'); }
@@ -760,7 +863,7 @@
     context.textBaseline = 'middle';
     for (const item of rendered) {
       const box = item.labelElement?.firstChild;
-      if (!box) continue;
+      if (!box || box.hidden) continue;
       const rectangle = box.getBoundingClientRect(), picked = item.index === pickedIndex;
       const x = (rectangle.left - stageBox.left) * scale, y = (rectangle.top - stageBox.top) * scale, width = rectangle.width * scale, height = rectangle.height * scale;
       context.beginPath();
