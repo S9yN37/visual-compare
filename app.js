@@ -33,10 +33,14 @@
     items.map(([name, width, height, depth, radius = 0, shape = 'box']) =>
       ({ key: `${category}/${slugify(name)}`, category, label, name, width, height, depth, radius, shape })));
   const catalogByKey = new Map(catalog.map(definition => [definition.key, definition]));
-  const customDefinition = (name, width, height, depth, radius = 0) => ({
-    key: `custom:${name.replace(/[%:,]/g, encodeURIComponent)}:${width}:${height}:${depth}${radius ? `:${radius}` : ''}`,
-    category: 'custom', label: 'Custom', name, width, height, depth, radius, shape: 'box',
-  });
+  const cornerRadius = (width, height, radius = 0) => Math.min(Math.max(0, radius), width / 2, height / 2);
+  const customDefinition = (name, width, height, depth, radius = 0) => {
+    radius = cornerRadius(width, height, radius);
+    return {
+      key: `custom:${name.replace(/[%:,]/g, encodeURIComponent)}:${width}:${height}:${depth}${radius ? `:${radius}` : ''}`,
+      category: 'custom', label: 'Custom', name, width, height, depth, radius, shape: 'box',
+    };
+  };
 
   // all state is in the URL, so a link and a saved session are the same thing
   const DEFAULTS = { view: 'isometric', layout: 'row', alignX: 'center', alignZ: 'center', unit: 'cm', labels: 1, grid: 1, edges: 1, opacity: 1, spacing: 1, sort: 0, autoRotate: 0, perspective: 0 };
@@ -66,7 +70,7 @@
     let definition = catalogByKey.get(key);
     if (!definition && key.startsWith('custom:')) {
       const [, name, ...size] = key.split(':'), radius = +(size[3] ?? 0);
-      if (size.length < 3 || size.length > 4 || !size.slice(0, 3).every(value => isPositive(+value)) || !(radius >= 0)) return null;
+      if (size.length < 3 || size.length > 4 || !size.slice(0, 3).every(value => isPositive(+value)) || !Number.isFinite(radius) || radius < 0) return null;
       try { definition = customDefinition(decodeURIComponent(name), ...size.slice(0, 3).map(Number), radius); } catch { return null; }
     }
     return definition ? { definition, turn: turn & 1, tip: tip & 1, roll: roll & 1 } : null;
@@ -83,6 +87,7 @@
 
   function commit(refit) {
     const query = toQuery();
+    invalidatePreparedAR(query);
     history.replaceState(null, '', query ? '?' + query : location.pathname);
     try { localStorage.setItem('visualCompare.last', query); } catch {}
     if (!rendered.length) setFitting(true);
@@ -92,20 +97,30 @@
   }
 
   const UNIT_FACTORS = { mm: 1, cm: 10, m: 1000, in: 25.4, inch: 25.4, inches: 25.4, '"': 25.4, '″': 25.4, ft: 304.8, foot: 304.8, feet: 304.8, "'": 304.8, '′': 304.8 };
-  const SIZE_PATTERN = /(\d*\.?\d+)\s*(mm|cm|m|inches|inch|in|feet|foot|ft|"|″|'|′)?/gi;
+  const SIZE_PATTERN = /(\d*\.?\d+)(?:\s*(mm|cm|m|inches|inch|in|feet|foot|ft|"|″|'|′))?(?:\s*[-–—]\s*(\d*\.?\d+)(?:\s*(mm|cm|m|inches|inch|in|feet|foot|ft|"|″|'|′))?)?/gi;
 
   // accepts "380 x 158 x 8 mm", "12in x 4.5in x 1.2in", "0.41 - 1.09 cm" (ranges keep the larger value); a bare number takes the next unit to its right
   function parseSize(text, fallbackUnit) {
-    const cleaned = text.replace(/(\d),(\d)/g, '$1.$2')
-      .replace(/(\d*\.?\d+)\s*(?:[a-z"″'′]+)?\s*[-–—]\s*(\d*\.?\d+)/gi, (match, low, high) => Math.max(+low, +high));
+    const cleaned = text.replace(/(\d),(\d)/g, '$1.$2');
     const matches = [...cleaned.matchAll(SIZE_PATTERN)];
     if (matches.length !== 3) return null;
-    const detectedUnit = matches.findLast(match => match[2])?.[2].toLowerCase();
+    let end = 0;
+    for (const [index, match] of matches.entries()) {
+      const separator = cleaned.slice(end, match.index);
+      if (!(index === 0 ? /^\s*$/ : /^(?:\s*[x×*;,]\s*|\s+)$/i).test(separator)) return null;
+      end = match.index + match[0].length;
+    }
+    if (cleaned.slice(end).trim()) return null;
+    const lastUnit = matches.findLast(match => match[4] || match[2]);
+    const detectedUnit = (lastUnit?.[4] || lastUnit?.[2])?.toLowerCase();
     let unit = detectedUnit ?? fallbackUnit;
-    const values = matches.toReversed().map(([, value, explicitUnit]) => {
-      if (explicitUnit) unit = explicitUnit.toLowerCase();
-      return +(value * UNIT_FACTORS[unit]).toFixed(2);
+    const values = matches.toReversed().map(([, value, explicitUnit, upper, upperUnit]) => {
+      const highUnit = upperUnit?.toLowerCase() ?? explicitUnit?.toLowerCase() ?? unit;
+      unit = explicitUnit?.toLowerCase() ?? highUnit;
+      const millimeters = Math.max(value * UNIT_FACTORS[unit], upper === undefined ? 0 : upper * UNIT_FACTORS[highUnit]);
+      return +millimeters.toFixed(2);
     }).toReversed();
+    if (!values.every(isPositive)) return null;
     return { values, detectedUnit };
   }
 
@@ -139,6 +154,7 @@
     if (shape === 'cylinder') return Math.PI * (width / 2) ** 2 * height;
     if (shape === 'disc') return Math.PI * (width / 2) ** 2 * depth;
     if (shape === 'sphere') return 4 / 3 * Math.PI * (width / 2) ** 3;
+    radius = cornerRadius(width, height, radius);
     return (width * height - (4 - Math.PI) * radius * radius) * depth;
   }
 
@@ -167,7 +183,7 @@
   // render only when something changed or the camera is still moving
   let renderPending = true;
   const requestRender = () => { renderPending = true; };
-  controls.addEventListener('change', requestRender);
+  controls.addEventListener('change', () => { clipToScene(); requestRender(); });
   // the browser may drop the canvas while the tab is in the background
   document.addEventListener('visibilitychange', requestRender);
   renderer.domElement.addEventListener('webglcontextrestored', requestRender);
@@ -182,7 +198,7 @@
     if (shape === 'cylinder') return new THREE.CylinderGeometry(width / 2, width / 2, height, 64);
     if (shape === 'disc') return new THREE.CylinderGeometry(width / 2, width / 2, depth, 64).rotateX(Math.PI / 2);
     if (shape === 'sphere') return new THREE.SphereGeometry(width / 2, 64, 32);
-    radius = Math.min(radius, width / 2, height / 2);
+    radius = cornerRadius(width, height, radius);
     if (!radius) return new THREE.BoxGeometry(width, height, depth);
     const outline = new THREE.Shape(), left = -width / 2, bottom = -height / 2;
     outline.moveTo(left + radius, bottom);
@@ -356,6 +372,7 @@
     orthographicCamera.updateProjectionMatrix();
     perspectiveCamera.updateProjectionMatrix();
     fitCamera();
+    requestRender();
   }
   new ResizeObserver(resize).observe(stage);
 
@@ -552,9 +569,14 @@
       finished = true;
       const newName = input.value.trim();
       if (!newName || newName === name) return refreshSessions(() => sessions.list());
-      await refreshSessions(() => sessions.rename(name, newName));
-      if (sessionForm.elements.name.value.trim() === name) sessionForm.elements.name.value = newName;
-      syncSessionButton();
+      try {
+        const list = await sessions.rename(name, newName);
+        if (sessionForm.elements.name.value.trim() === name) sessionForm.elements.name.value = newName;
+        renderSessions(list);
+      } catch (error) {
+        finished = false;
+        toast(error.message);
+      }
     };
     input.addEventListener('keydown', event => {
       if (event.key === 'Enter') finish();
@@ -600,7 +622,7 @@
     const radius = +((+fields.radius.value || 0) * UNIT_FACTORS[unit]).toFixed(2);
     return { ...size, values: orient(size.values, fields.order.value), unit: fields.unit.value, radius };
   }
-  const validCustomSize = size => size && size.values.every(isPositive) && size.radius >= 0;
+  const validCustomSize = size => size && size.values.every(isPositive) && Number.isFinite(size.radius) && size.radius >= 0;
   const customFormDefinition = size => customDefinition(customForm.elements.name.value.trim() || 'Custom Object', ...size.values, size.radius);
   customForm.addEventListener('input', () => {
     const size = readCustomForm();
@@ -776,17 +798,72 @@
 
   // AR hands a GLB of the scene (in meters) to model-viewer, which opens Quick Look on iOS and WebXR on Android
   const arButton = find('#ar'), arViewer = find('#arViewer');
-  const arModules = matchMedia('(pointer: coarse)').matches && Promise.all([
-    import('three/addons/exporters/GLTFExporter.js'), import('https://cdn.jsdelivr.net/npm/@google/model-viewer@4.1.0/dist/model-viewer.min.js')]);
-  arButton.hidden = !arModules;
+  const arLabel = document.createElement('span');
+  arButton.append(arLabel);
+  arButton.hidden = !matchMedia('(pointer: coarse)').matches;
+  let arModules, arBusy = false, arPresenting = false, arReadyQuery = null, arModelURL = null, arUSDZURL = null;
+
+  function loadARModules() {
+    return arModules ??= Promise.all([
+      import('three/addons/exporters/GLTFExporter.js'),
+      import('https://cdn.jsdelivr.net/npm/@google/model-viewer@4.1.0/dist/model-viewer.min.js'),
+    ]).catch(error => { arModules = null; throw error; });
+  }
+  function syncARButton() {
+    arButton.disabled = arBusy || arPresenting;
+    arLabel.textContent = arBusy ? (arReadyQuery === null ? 'Preparing…' : 'Starting…') : '';
+    arLabel.hidden = !arLabel.textContent;
+    arButton.title = arLabel.textContent || (arReadyQuery === null ? 'View in AR' : 'Start AR');
+    arButton.setAttribute('aria-label', arButton.title);
+    arButton.setAttribute('aria-busy', String(arBusy));
+  }
+  function clearPreparedAR() {
+    arReadyQuery = null;
+    if (arUSDZURL) { arViewer.iosSrc = null; URL.revokeObjectURL(arUSDZURL); arUSDZURL = null; }
+    if (arModelURL) { arViewer.src = null; URL.revokeObjectURL(arModelURL); arModelURL = null; }
+    syncARButton();
+  }
+  function invalidatePreparedAR(query) {
+    if (!arBusy && !arPresenting && arReadyQuery !== null && arReadyQuery !== query) clearPreparedAR();
+  }
+  function loadARModel(url) {
+    return new Promise((resolve, reject) => {
+      const finish = error => {
+        clearTimeout(timer);
+        arViewer.removeEventListener('load', loaded);
+        arViewer.removeEventListener('error', failed);
+        if (error) reject(error); else resolve();
+      };
+      const loaded = () => finish(), failed = () => finish(new Error('The AR model could not load. Tap AR to retry.'));
+      const timer = setTimeout(() => finish(new Error('The AR model took too long to load. Tap AR to retry.')), 60000);
+      arViewer.addEventListener('load', loaded);
+      arViewer.addEventListener('error', failed);
+      try { arViewer.src = url; } catch (error) { finish(error); }
+    });
+  }
   arViewer.addEventListener('ar-status', ({ detail }) => {
-    arViewer.classList.toggle('active', detail.status === 'session-started');
+    arPresenting = detail.status === 'session-started' || detail.status === 'object-placed';
+    arViewer.classList.toggle('active', arPresenting);
+    syncARButton();
+    invalidatePreparedAR(toQuery());
     if (detail.status === 'failed') toast('AR could not start');
   });
   arButton.addEventListener('click', async () => {
-    if (!entries.length) return;
+    if (!entries.length || arBusy || arPresenting) return;
+    const query = toQuery();
+    invalidatePreparedAR(query);
+    arBusy = true;
+    syncARButton();
+    // Keep launch in the fresh tap handler, before any import, export or loading await.
+    if (arReadyQuery === query) {
+      try { await arViewer.activateAR(); }
+      catch (error) { console.error(error); toast('AR could not start. Tap Start AR to retry.'); }
+      finally { arBusy = false; syncARButton(); invalidatePreparedAR(toQuery()); }
+      return;
+    }
     try {
-      const [{ GLTFExporter }] = await arModules;
+      clearPreparedAR();
+      const [{ GLTFExporter }] = await loadARModules();
       const copy = new THREE.Group();
       copy.scale.setScalar(.001);
       for (const holder of world.children) {
@@ -796,16 +873,32 @@
         copy.add(clone);
       }
       const glb = await new Promise((resolve, reject) => new GLTFExporter().parse(copy, resolve, reject, { binary: true }));
-      URL.revokeObjectURL(arViewer.src);
-      arViewer.src = URL.createObjectURL(new Blob([glb], { type: 'model/gltf-binary' }));
-      await new Promise(resolve => arViewer.addEventListener('load', resolve, { once: true }));
-      if (arViewer.canActivateAR) arViewer.activateAR();
-      else toast('AR is not available in this browser');
+      arModelURL = URL.createObjectURL(new Blob([glb], { type: 'model/gltf-binary' }));
+      await loadARModel(arModelURL);
+      await arViewer.updateComplete;
+      if (!arViewer.canActivateAR) { clearPreparedAR(); return toast('AR is not available in this browser'); }
+      // model-viewer 4.1 exposes prepareUSDZ(); cache its result so Quick Look
+      // does not need an asynchronous conversion inside the launch tap.
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (isIOS) {
+        arUSDZURL = await arViewer.prepareUSDZ();
+        arViewer.iosSrc = arUSDZURL;
+        await arViewer.updateComplete;
+      }
+      if (query !== toQuery()) { clearPreparedAR(); return toast('Comparison changed. Tap AR to prepare it again.'); }
+      arReadyQuery = query;
+      toast('AR Ready — tap Start AR to launch');
     } catch (error) {
       console.error(error);
-      toast('AR could not start');
+      clearPreparedAR();
+      toast(error.message?.startsWith('The AR model') ? error.message : 'AR could not prepare. Tap AR to retry.');
+    } finally {
+      arBusy = false;
+      syncARButton();
     }
   });
+  syncARButton();
   find('#fullscreen').hidden = !document.fullscreenEnabled;
   find('#fullscreen').addEventListener('click', () => document.fullscreenElement ? document.exitFullscreen() : find('.main').requestFullscreen());
   document.addEventListener('fullscreenchange', () => find('#fullscreen').classList.toggle('active', !!document.fullscreenElement));

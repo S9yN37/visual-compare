@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-const PORT = +process.env.PORT || 8765;
+const PORT = process.env.PORT === undefined ? 8765 : Number(process.env.PORT);
 const root = import.meta.dirname;
 const database = new DatabaseSync(process.env.DATABASE || join(root, 'sessions.sqlite'));
 database.exec(`
@@ -35,7 +35,7 @@ async function handleSessions(request, response, pathname) {
   if (pathname === '/api/sessions' && request.method === 'POST') {
     const { name, query, count } = JSON.parse(await readBody(request)), cleanedName = cleanName(name);
     if (!cleanedName || typeof query !== 'string') return sendJson(response, 400, { error: 'Name and query are required' });
-    statements.save.run(cleanedName, query.slice(0, 4000), count | 0, Date.now());
+    statements.save.run(cleanedName, query, count | 0, Date.now());
     return sendJson(response, 200, statements.list.all());
   }
   const single = pathname.match(/^\/api\/sessions\/(.+)$/), name = single && decodeURIComponent(single[1]);
@@ -60,7 +60,7 @@ async function handleStatic(response, pathname) {
   response.end(await readFile(join(root, file)));
 }
 
-createServer(async (request, response) => {
+const server = createServer(async (request, response) => {
   const { pathname } = new URL(request.url, 'http://localhost');
   try {
     await (pathname.startsWith('/api/') ? handleSessions(request, response, pathname) : handleStatic(response, pathname));
@@ -69,4 +69,5 @@ createServer(async (request, response) => {
     const badRequest = error instanceof SyntaxError || error instanceof URIError;
     sendJson(response, badRequest ? 400 : 500, { error: badRequest ? 'Invalid request' : 'Server error' });
   }
-}).listen(PORT, () => console.log(`Visual Compare running at http://localhost:${PORT}`));
+});
+server.listen(PORT, () => console.log(`Visual Compare running at http://localhost:${server.address().port}`));

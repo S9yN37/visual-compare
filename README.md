@@ -15,6 +15,8 @@ See the real-world size of things side by side in 3D: phones, laptops, speakers,
 - **Themes:** light, dark, or follow the system
 - **Keyboard shortcuts:** press `?` in the app
 
+On a supported phone, tap AR to prepare the comparison, then tap **Start AR** to launch it. Changing the comparison prepares a new model on the next tap.
+
 ## Run Locally
 
 No build step. Open `index.html` in a browser, or run the optional server to share saved sessions between devices:
