@@ -34,16 +34,33 @@ GitHub Pages automatically builds and deploys pushes to `main`. The build stamps
 | File | Purpose |
 | --- | --- |
 | `index.html`, `style.css`, `app.js` | The app |
-| `items.js` | The catalog: `[name, width, height, depth, corner radius, shape]` in mm |
+| `items.js` | The catalog: `[name, width, height, depth, x, y, z]` in mm (see Shapes) |
 | `server.js` | Optional static server with a shared sessions API (SQLite) |
+
+## Shapes
+
+Every item is a box written as it stands — width left–right, height up, depth toward the viewer — plus optional radii `x, y, z` for the edges running along width, height and depth. Each radius is at most half of the two sizes it rounds across.
+
+| Item | Sizes | x, y, z |
+| --- | --- | --- |
+| Brick | 215, 65, 102.5 | — |
+| Phone | 78, 163.4, 8.75 | 2, 2, 12 |
+| Coin | 23.25, 23.25, 2.33 | 0, 0, 11.625 |
+| Upright can | 66, 115, 66 | 0, 33, 0 |
+| Battery with rounded rims | 14.5, 50.5, 14.5 | 1, 7.25, 1 |
+| Ball | 67, 67, 67 | 33.5, 33.5, 33.5 |
+
+The odd radius rounds the outline around its axis and the matching pair rounds that outline's rims, so two of the three must match. Rims larger than the outline radius meet in a mitered corner.
+
+Tip (X), Turn (Y) and Roll (Z) swap two sizes together with their radii.
 
 ## URL Format
 
 ```
-?items=phone/iphone-18-pro-max,custom:Name:380:158:8&view=front&unit=in
+?items=phone/iphone-18-pro-max,common/soda-can-330-ml!wdh,custom:Can:66:115:66:0:33:0&view=front&unit=in
 ```
 
-Catalog items are `category/slug`. Custom items are `custom:Name:width:height:depth[:radius]` in mm. Settings only appear when they differ from the defaults.
+Catalog items are `category/slug`, followed by `!` and the new size order when turned (`!wdh`: the item's depth now runs along its height). Custom items are `custom:Name:width:height:depth[:x:y:z]` in mm, as they stand. Settings only appear when they differ from the defaults.
 
 ## License
 

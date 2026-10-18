@@ -39,7 +39,8 @@ input[type=checkbox] { width: auto; box-shadow: none; accent-color: var(--accent
 [hidden] { display: none !important; }
 .notice { margin: 0; padding: 12px 20px; background: var(--danger); color: #fff; text-align: center; }
 
-.app { height: 100dvh; }
+/* installed apps may draw under the system bars */
+.app { height: 100dvh; padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
 
 .search { position: relative; }
 .search svg { position: absolute; left: 10px; top: 50%; translate: 0 -50%; color: var(--muted); }
@@ -60,7 +61,8 @@ input[type=checkbox] { width: auto; box-shadow: none; accent-color: var(--accent
 #customForm { display: grid; gap: 10px; }
 #customForm .size { display: grid; grid-template-columns: 1fr 64px; gap: 6px; }
 #customForm label { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
-#customForm .size input, #customForm .size select { padding: 6px 8px; }
+#customForm .round { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+#customForm .size input, #customForm .size select, #customForm .round input { padding: 6px 8px; min-width: 0; }
 #customForm .hint { margin: 0; min-height: 1.2em; }
 #customForm .actions { display: flex; }
 #customForm .actions button { flex: 1; }

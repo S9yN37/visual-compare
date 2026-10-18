@@ -19,7 +19,8 @@ const statements = {
 const cleanName = name => typeof name === 'string' && name.trim().slice(0, 100);
 
 // only the app's own files, so the database, server code and .git stay private
-const PUBLIC_FILES = { '/index.html': 'text/html; charset=utf-8', '/app.js': 'text/javascript', '/items.js': 'text/javascript', '/style.css': 'text/css' };
+const PUBLIC_FILES = { '/index.html': 'text/html; charset=utf-8', '/app.js': 'text/javascript', '/items.js': 'text/javascript', '/style.css': 'text/css',
+  '/manifest.webmanifest': 'application/manifest+json', '/icon-192.png': 'image/png', '/icon-512.png': 'image/png' };
 const sendJson = (response, status, body) => {
   response.writeHead(status, { 'Content-Type': 'application/json' });
   response.end(JSON.stringify(body));

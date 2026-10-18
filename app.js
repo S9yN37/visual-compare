@@ -25,8 +25,9 @@
   }
   if (await checkForUpdate()) return;
 
-  const [THREE, { OrbitControls }, { CSS2DRenderer, CSS2DObject }] = await Promise.all([
-    import('three'), import('three/addons/controls/OrbitControls.js'), import('three/addons/renderers/CSS2DRenderer.js')]);
+  const [THREE, { OrbitControls }, { CSS2DRenderer, CSS2DObject }, { RoomEnvironment }] = await Promise.all([
+    import('three'), import('three/addons/controls/OrbitControls.js'), import('three/addons/renderers/CSS2DRenderer.js'),
+    import('three/addons/environments/RoomEnvironment.js')]);
 
   const icon = paths => `<svg viewBox="0 0 24 24">${paths}</svg>`;
   const ICONS = {
@@ -51,19 +52,32 @@
   }
 
   const slugify = text => text.toLowerCase().replace(/"/g, 'in').replace(/\+/g, '-plus').replace(/€/g, 'eur-').replace(/£/g, 'gbp-').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  // a shape is size [width, height, depth] plus round [x, y, z]: the radius of the edges running along each axis
+  const reorder = (values, order) => order.map(index => values[index]);
+  // the odd radius rounds the outline around its axis and the matching pair rounds that outline's rims
+  const sweepAxis = ([x, y, z], size) => x === y ? (y === z ? size.indexOf(Math.min(...size)) : 2) : x === z ? 1 : 0;
+  const validRound = round => round.every(value => Number.isFinite(value) && value >= 0) && new Set(round).size < 3;
+  // radii are limited here, so every label, mesh and volume uses the same effective values
+  function defineShape(size, round = [0, 0, 0]) {
+    round = round.map(value => Math.max(0, value));
+    const axis = sweepAxis(round, size), others = [0, 1, 2].filter(index => index !== axis);
+    const corner = Math.min(round[axis], ...reorder(size, others).map(value => value / 2));
+    const rim = Math.min(...reorder(round, others), ...size.map(value => value / 2));
+    return { size, round: round.map((_, index) => index === axis ? corner : rim) };
+  }
   const catalog = Object.entries(CATEGORIES).flatMap(([category, { label, items }]) =>
-    items.map(([name, width, height, depth, radius = 0, shape = 'box']) =>
-      ({ key: `${category}/${slugify(name)}`, category, label, name, width, height, depth, radius, shape })));
+    items.map(([name, width, height, depth, x = 0, y = 0, z = 0]) =>
+      ({ key: `${category}/${slugify(name)}`, category, label, name, ...defineShape([width, height, depth], [x, y, z]) })));
   const catalogByKey = new Map(catalog.map(definition => [definition.key, definition]));
-  const cornerRadius = (width, height, radius = 0) => Math.min(Math.max(0, radius), width / 2, height / 2);
-  const customDefinition = (name, width, height, depth, radius = 0) => {
-    radius = cornerRadius(width, height, radius);
-    return {
-      key: `custom:${name.replace(/[%:,]/g, encodeURIComponent)}:${width}:${height}:${depth}${radius ? `:${radius}` : ''}`,
-      category: 'custom', label: 'Custom', name, width, height, depth, radius, shape: 'box',
-    };
+  const customDefinition = (name, size, round) => {
+    const shape = defineShape(size, round), values = shape.round.some(Boolean) ? [...shape.size, ...shape.round] : shape.size;
+    return { key: `custom:${name.replace(/[%:,]/g, encodeURIComponent)}:${values.join(':')}`, category: 'custom', label: 'Custom', name, ...shape };
   };
-
+  // an entry's order says which of its item's axes now runs along width, height and depth
+  const placed = ({ definition, order }) => ({ ...definition, size: reorder(definition.size, order), round: reorder(definition.round, order) });
+  const AXES = 'whd', AS_DEFINED = [0, 1, 2];
+  // a quarter-turn swaps the two sizes, and their radii, across its axis
+  const TURNS = { tip: [0, 2, 1], turn: [2, 1, 0], roll: [1, 0, 2] };
   // all state is in the URL, so a link and a saved session are the same thing
   const DEFAULTS = { view: 'isometric', layout: 'row', alignX: 'center', alignZ: 'center', unit: 'cm', labels: 1, grid: 1, opacity: 1, spacing: 1, sort: 0, autoRotate: 0, perspective: 0 };
   const REFIT_SETTINGS = new Set(['view', 'layout', 'alignX', 'alignZ', 'perspective', 'spacing', 'sort', 'labels']);
@@ -75,7 +89,7 @@
   function toQuery() {
     const parameters = new URLSearchParams();
     if (entries.length) parameters.set('items', entries.map(entry =>
-      entry.definition.key + (entry.turn || entry.tip || entry.roll ? `!${entry.turn}${entry.tip}${entry.roll}` : '')).join(','));
+      entry.definition.key + (entry.order.join() === AS_DEFINED.join() ? '' : '!' + reorder(AXES, entry.order).join(''))).join(','));
     for (const key in DEFAULTS) if (settings[key] !== DEFAULTS[key]) parameters.set(key, settings[key]);
     return parameters.toString().replace(/%2F/g, '/').replace(/%2C/g, ',').replace(/%21/g, '!').replace(/%3A/g, ':');
   }
@@ -90,14 +104,15 @@
   }
 
   function parseEntry(token) {
-    const [, key, turn = 0, tip = 0, roll = 0] = token.match(/^(.*?)(?:!(\d)(\d)(\d))?$/);
+    const [, key, order = AXES] = token.match(/^(.*?)(?:!([whd]{3}))?$/);
     let definition = catalogByKey.get(key);
     if (!definition && key.startsWith('custom:')) {
-      const [, name, ...size] = key.split(':'), radius = +(size[3] ?? 0);
-      if (size.length < 3 || size.length > 4 || !size.slice(0, 3).every(value => isPositive(+value)) || !Number.isFinite(radius) || radius < 0) return null;
-      try { definition = customDefinition(decodeURIComponent(name), ...size.slice(0, 3).map(Number), radius); } catch { return null; }
+      const [, name, ...values] = key.split(':'), [width, height, depth, x = 0, y = 0, z = 0] = values.map(Number);
+      if (![3, 6].includes(values.length) || ![width, height, depth].every(isPositive) || !validRound([x, y, z])) return null;
+      try { definition = customDefinition(decodeURIComponent(name), [width, height, depth], [x, y, z]); } catch { return null; }
     }
-    return definition ? { definition, turn: turn & 1, tip: tip & 1, roll: roll & 1 } : null;
+    if (!definition || new Set(order).size < 3) return null;
+    return { definition, order: [...order].map(letter => AXES.indexOf(letter)) };
   }
 
   function fromQuery(query) {
@@ -158,11 +173,6 @@
     return values.map(value => formatNumber(value / factor)).join(' × ') + ' ' + unit;
   };
   const formatLength = millimeters => formatDimensions([millimeters]);
-  const describeSize = ({ shape, width, height, depth }, size = [width, height, depth]) =>
-    shape === 'sphere' ? `Ø ${formatLength(width)}`
-    : shape === 'cylinder' ? `Ø ${formatLength(width)} × ${formatLength(height)} tall`
-    : shape === 'disc' ? `Ø ${formatLength(width)} × ${formatLength(depth)} thick`
-    : formatDimensions(size);
   const formatVolume = cubicMillimeters => settings.unit === 'in'
     ? (cubicMillimeters >= 1728 * 16387.064 ? formatNumber(cubicMillimeters / 28316846.6) + ' ft³' : formatNumber(cubicMillimeters / 16387.064) + ' in³')
     : cubicMillimeters >= 1e9 ? formatNumber(cubicMillimeters / 1e9) + ' m³'
@@ -174,12 +184,24 @@
   const formatDate = time => new Date(time - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16).replace('T', ' ');
   const formatRatio = value => value >= 100 ? Math.round(value).toLocaleString() + '×' : formatNumber(value) + '×';
 
-  function computeVolume({ width, height, depth, radius, shape }) {
-    if (shape === 'cylinder') return Math.PI * (width / 2) ** 2 * height;
-    if (shape === 'disc') return Math.PI * (width / 2) ** 2 * depth;
-    if (shape === 'sphere') return 4 / 3 * Math.PI * (width / 2) ** 3;
-    radius = cornerRadius(width, height, radius);
-    return (width * height - (4 - Math.PI) * radius * radius) * depth;
+  // meshes are built sweeping along z, from the outline across the two other axes
+  const OUTLINES = [[2, 1], [0, 2], [0, 1]];
+  function sweep({ size, round }) {
+    const axis = sweepAxis(round, size), [across, up] = OUTLINES[axis];
+    return { axis, width: size[across], height: size[up], depth: size[axis], radius: round[axis], edge: round[across] };
+  }
+  const diameter = shape => { const { width, height, radius } = sweep(shape); return width === height && radius === width / 2 ? width : 0; };
+
+  // integrates the slice areas: a rim slice at height t is the outline shrunk by e − s, with s = √(e² − t²)
+  function computeVolume(shape) {
+    const { width, height, depth, radius, edge } = sweep(shape);
+    const area = width * height - (4 - Math.PI) * radius ** 2;
+    if (!edge) return area * depth;
+    // slice corners stay round only while s > k, i.e. for t < reach
+    const k = edge - radius, reach = k > 0 ? Math.sqrt(edge ** 2 - k ** 2) : edge, s = Math.sqrt(edge ** 2 - reach ** 2);
+    const cornerLoss = (4 - Math.PI) * (edge ** 2 * reach - reach ** 3 / 3 - k * (reach * s + edge ** 2 * Math.asin(reach / edge)) + k ** 2 * reach);
+    const rim = (width - 2 * edge) * (height - 2 * edge) * edge + (width + height - 4 * edge) * Math.PI * edge ** 2 / 2 + 8 * edge ** 3 / 3 - cornerLoss;
+    return area * (depth - 2 * edge) + 2 * rim;
   }
 
   const stage = find('#stage');
@@ -187,15 +209,24 @@
   const labelsVisible = () => settings.labels && !mobileLayout.matches;
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const labelRenderer = new CSS2DRenderer();
   labelRenderer.domElement.className = 'labels';
   stage.prepend(renderer.domElement, labelRenderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x667085, 2));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.6);
-  sun.position.set(2, 4, 3);
-  scene.add(sun);
+  // soft studio reflections make rounded edges readable without outlines
+  scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), .04).texture;
+  scene.environmentIntensity = .5;
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x666666, 1.5));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.6), SUN_DIRECTION = new THREE.Vector3(-1, 3, 1).normalize();
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  // only the floor receives shadows, so items never show shadow acne
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.ShadowMaterial({ opacity: .3 }));
+  floor.receiveShadow = true;
+  scene.add(sun, sun.target, floor);
   const world = new THREE.Group();
   scene.add(world);
   let grid = null;
@@ -250,11 +281,13 @@
     }
   }
 
-  function createGeometry({ width, height, depth, radius, shape }) {
-    if (shape === 'cylinder') return new THREE.CylinderGeometry(width / 2, width / 2, height, 64);
-    if (shape === 'disc') return new THREE.CylinderGeometry(width / 2, width / 2, depth, 64).rotateX(Math.PI / 2);
-    if (shape === 'sphere') return new THREE.SphereGeometry(width / 2, 64, 32);
-    radius = cornerRadius(width, height, radius);
+  function createGeometry(shape) {
+    const { axis, width, height, depth, radius, edge } = sweep(shape), geometry = createSweptGeometry(width, height, depth, radius, edge);
+    return axis === 0 ? geometry.rotateY(-Math.PI / 2) : axis === 1 ? geometry.rotateX(-Math.PI / 2) : geometry;
+  }
+
+  function createSweptGeometry(width, height, depth, radius, edge) {
+    if (edge) return createBeveledGeometry(width, height, depth, radius, edge);
     if (!radius) return new THREE.BoxGeometry(width, height, depth);
     const outline = new THREE.Shape(), left = -width / 2, bottom = -height / 2;
     outline.moveTo(left + radius, bottom);
@@ -263,6 +296,43 @@
     outline.absarc(left + radius, bottom + height - radius, radius, Math.PI / 2, Math.PI);
     outline.absarc(left + radius, bottom + radius, radius, Math.PI, Math.PI * 1.5);
     return new THREE.ExtrudeGeometry(outline, { depth, bevelEnabled: false, curveSegments: 10 }).translate(0, 0, -depth / 2);
+  }
+
+  function createBeveledGeometry(width, height, depth, radius, edge) {
+    const positions = [], normals = [], indices = [], cornerSegments = 16, edgeSegments = 12;
+    const corners = [[1, -1], [1, 1], [-1, 1], [-1, -1]];
+    const stride = 4 * (cornerSegments + 1);
+    // each ring is the outline shrunk by the inset; its corners turn sharp (a miter) once the inset exceeds the corner radius
+    function ring(angle, front) {
+      const radial = Math.sin(angle), axial = Math.cos(angle), inset = edge * (1 - radial);
+      const z = (front ? -1 : 1) * (depth / 2 - edge * (1 - axial)), round = Math.max(radius - inset, 0), reach = Math.max(radius, inset);
+      corners.forEach(([sx, sy], corner) => {
+        for (let step = 0; step <= cornerSegments; step++) {
+          const theta = (corner - 1 + step / cornerSegments) * Math.PI / 2;
+          const nx = Math.cos(theta), ny = Math.sin(theta);
+          positions.push(sx * (width / 2 - reach) + round * nx, sy * (height / 2 - reach) + round * ny, z);
+          normals.push(radial * nx, radial * ny, (front ? -1 : 1) * axial);
+        }
+      });
+    }
+    for (let step = 0; step <= edgeSegments; step++) ring(step / edgeSegments * Math.PI / 2, true);
+    for (let step = depth === 2 * edge ? edgeSegments - 1 : edgeSegments; step >= 0; step--) ring(step / edgeSegments * Math.PI / 2, false);
+    const rings = positions.length / 3 / stride;
+    for (let layer = 0; layer < rings - 1; layer++) {
+      for (let point = 0; point < stride; point++) {
+        const a = layer * stride + point, b = layer * stride + (point + 1) % stride;
+        indices.push(a, b, a + stride, b, b + stride, a + stride);
+      }
+    }
+    const front = positions.length / 3, back = front + 1, last = (rings - 1) * stride;
+    positions.push(0, 0, -depth / 2, 0, 0, depth / 2);
+    normals.push(0, 0, -1, 0, 0, 1);
+    for (let point = 0; point < stride; point++) {
+      const next = (point + 1) % stride;
+      indices.push(front, next, point, back, last + point, last + next);
+    }
+    return new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+      .setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3)).setIndex(indices);
   }
 
   const cssVariable = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -279,18 +349,18 @@
     const isNested = settings.layout === 'nest';
     const opacity = settings.opacity * (isNested ? .5 : 1);
     rendered = entries.map((entry, index) => {
-      const { css: color, rgb } = objectColor(index), volume = computeVolume(entry.definition);
-      const mesh = new THREE.Mesh(createGeometry(entry.definition), new THREE.MeshStandardMaterial({
+      const { css: color, rgb } = objectColor(index), shape = placed(entry), volume = computeVolume(shape);
+      const mesh = new THREE.Mesh(createGeometry(shape), new THREE.MeshStandardMaterial({
         color: rgb, roughness: .5, metalness: .05, transparent: opacity < 1, opacity, depthWrite: opacity >= 1,
         emissiveIntensity: .35, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
       }));
       mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry, 20),
         new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: opacity * .5, depthWrite: false })));
-      mesh.rotation.set(entry.tip * Math.PI / 2, entry.turn * Math.PI / 2, entry.roll * Math.PI / 2, 'YXZ');
       mesh.userData = { index, volume };
+      mesh.castShadow = true;
       mesh.updateMatrixWorld();
       const bounds = new THREE.Box3().setFromObject(mesh);
-      return { entry, index, color, rgb, volume, mesh, bounds, size: bounds.getSize(new THREE.Vector3()), labelElement: null };
+      return { entry, shape, index, color, rgb, volume, mesh, bounds, size: bounds.getSize(new THREE.Vector3()), labelElement: null };
     });
     if (!rendered.length) return;
 
@@ -307,17 +377,18 @@
       const { min, max } = item.bounds, holder = new THREE.Group();
       holder.add(item.mesh);
       for (const axis of ['x', 'y', 'z']) {
-        if (axis === arrangeAxis) { holder.position[axis] = cursor - min[axis]; cursor += item.size[axis] + spacing; }
+        // lines run away from the viewer, so the first item stands in front
+        if (axis === arrangeAxis) { holder.position[axis] = axis === 'z' ? -cursor - max[axis] : cursor - min[axis]; cursor += item.size[axis] + spacing; }
         else holder.position[axis] = alignment[axis] === 'min' ? -min[axis] : alignment[axis] === 'max' ? -max[axis] : -(min[axis] + max[axis]) / 2;
       }
       item.labelElement = document.createElement('div');
       item.labelElement.className = labelsVisible() ? 'label' : 'label controls-only';
       item.labelElement.style.setProperty('--color', item.color);
-      item.labelElement.innerHTML = `<div role="button" tabindex="0" aria-label="Select ${escapeHtml(item.entry.definition.name)}"><b>${escapeHtml(item.entry.definition.name)}</b><span>${describeSize(item.entry.definition, item.size.toArray())}</span></div>
+      item.labelElement.innerHTML = `<div role="button" tabindex="0" aria-label="Select ${escapeHtml(item.entry.definition.name)}"><b>${escapeHtml(item.entry.definition.name)}</b><span>${formatDimensions(item.shape.size)}</span></div>
         <div class="label-actions" role="group" aria-label="Item orientation">
-          <button data-action="turn" title="Turn around the vertical axis (T when selected)" aria-label="Turn around the vertical axis">${ICONS.turn}</button>
-          <button data-action="tip" title="Tip: rotate forwards (X axis)" aria-label="Tip forwards">${ICONS.tip}</button>
-          <button data-action="roll" title="Roll: rotate in the front plane (Z axis)" aria-label="Roll in the front plane">${ICONS.roll}</button>
+          <button data-action="tip" title="Tip: rotate forwards (X when selected)" aria-label="Tip forwards">${ICONS.tip}</button>
+          <button data-action="turn" title="Turn around the vertical axis (Y when selected)" aria-label="Turn around the vertical axis">${ICONS.turn}</button>
+          <button data-action="roll" title="Roll: rotate in the front plane (Z when selected)" aria-label="Roll in the front plane">${ICONS.roll}</button>
         </div>`;
       item.labelElement.firstChild.hidden = !labelsVisible();
       item.labelElement.addEventListener('click', event => {
@@ -341,9 +412,17 @@
     clipToScene();
     highlightPicked();
 
+    const worldBounds = new THREE.Box3().setFromObject(world);
+    const size = worldBounds.getSize(new THREE.Vector3()), center = worldBounds.getCenter(new THREE.Vector3());
+    // the sun follows the scene, so its shadow camera always covers every item
+    const extent = size.length(), radius = extent / 2;
+    sun.target.position.copy(center);
+    sun.position.copy(center).addScaledVector(SUN_DIRECTION, extent);
+    Object.assign(sun.shadow.camera, { left: -radius, right: radius, top: radius, bottom: -radius, near: 0, far: extent * 2 });
+    sun.shadow.camera.updateProjectionMatrix();
+    floor.position.set(center.x, -largestDimension * 2e-4, center.z);
+    floor.scale.setScalar(extent * 4);
     if (settings.grid) {
-      const worldBounds = new THREE.Box3().setFromObject(world);
-      const size = worldBounds.getSize(new THREE.Vector3()), center = worldBounds.getCenter(new THREE.Vector3());
       const span = Math.max(size.x, size.z);
       const [factor] = unitFor(span), step = 10 ** Math.floor(Math.log10(span / factor / 5)) * factor;
       const divisions = 2 * Math.ceil((span * .7 + largestDimension * .2) / step);
@@ -555,7 +634,7 @@
     find('#results').innerHTML = matches.map(definition => {
       const selected = selectedKeys.has(definition.key);
       return `<li><button data-key="${definition.key}" class="${selected ? 'selected' : ''}">
-        <span><b>${escapeHtml(definition.name)}</b><small>${escapeHtml(definition.label)} · ${describeSize(definition)}</small></span>
+        <span><b>${escapeHtml(definition.name)}</b><small>${escapeHtml(definition.label)} · ${formatDimensions(definition.size)}</small></span>
         ${selected ? ICONS.check : ICONS.plus}</button></li>`;
     }).join('') || '<li class="none">No matches. Use + in the toolbar to add your own dimensions.</li>';
   }
@@ -563,7 +642,7 @@
   function renderTray() {
     finishDrag();
     find('#selected').innerHTML = rendered.map(item => `<li class="chip ${pickedIndex === item.index ? 'picked' : ''}" data-index="${item.index}" style="--color:${item.color}" draggable="true" role="button" tabindex="0" aria-pressed="${pickedIndex === item.index}" title="Drag to reorder">
-      <i></i><div><b>${escapeHtml(item.entry.definition.name)}</b><small>${describeSize(item.entry.definition, item.size.toArray())}</small></div></li>`).join('');
+      <i></i><div><b>${escapeHtml(item.entry.definition.name)}</b><small>${formatDimensions(item.shape.size)}</small></div></li>`).join('');
   }
 
   function renderInfo() {
@@ -581,7 +660,7 @@
         <dt>Volume</dt><dd>${formatVolume(item.volume)}</dd>
         <dt>Front Area</dt><dd>${formatArea(width * height)}</dd>
         <dt>Footprint</dt><dd>${formatArea(width * depth)}</dd>
-        ${definition.shape !== 'box' ? `<dt>Diameter</dt><dd>${formatLength(definition.width)}</dd>` : ''}
+        ${diameter(item.shape) ? `<dt>Diameter</dt><dd>${formatLength(diameter(item.shape))}</dd>` : ''}
       </dl>
       ${comparisons ? `<ul class="comparisons">${comparisons}</ul>` : ''}
       <div class="actions">
@@ -603,8 +682,13 @@
     if (action === 'edit') return startEditing(index);
     if (action === 'remove') return removeEntries(index, 1);
     if (action === 'close') return pick(index);
-    const focused = document.activeElement?.closest('.label-actions button');
-    entries[index][action] ^= 1;
+    const focused = document.activeElement?.closest('.label-actions button'), entry = entries[index];
+    entry.order = reorder(entry.order, TURNS[action]);
+    // custom items keep their values as seen, so the turn is written into them
+    if (entry.definition.category === 'custom') {
+      const { name, size, round } = placed(entry);
+      Object.assign(entry, { definition: customDefinition(name, size, round), order: AS_DEFINED });
+    }
     commit(true);
     if (focused) {
       const button = rendered[index]?.labelElement.querySelector(`[data-action="${action}"]`);
@@ -615,7 +699,7 @@
   function toggle(key) {
     const index = entries.findIndex(entry => entry.definition.key === key);
     if (index >= 0) { entries.splice(index, 1); pickedIndex = null; }
-    else entries.push({ definition: catalogByKey.get(key), turn: 0, tip: 0, roll: 0 });
+    else entries.push({ definition: catalogByKey.get(key), order: AS_DEFINED });
     commit(true);
   }
 
@@ -761,26 +845,34 @@
 
   const customForm = find('#customForm');
   let editing = null;
-  // auto: thinnest side becomes depth, largest becomes width, so slabs face the viewer
-  function orient([first, second, third], order) {
-    if (order === 'wdh') return [first, third, second];
-    if (order === 'auto') { const [depth, height, width] = [first, second, third].sort((left, right) => left - right); return [width, height, depth]; }
-    return [first, second, third];
-  }
+  // radii are in the size's unit; a blank field is 0
+  const ROUND_AXES = ['x', 'y', 'z'], readRound = () => ROUND_AXES.map(axis => +customForm.elements[axis].value);
   function readCustomForm() {
     const fields = customForm.elements, size = parseSize(fields.size.value, fields.unit.value);
     if (!size) return null;
-    const unit = size.detectedUnit ?? fields.unit.value;
-    const radius = +((+fields.radius.value || 0) * UNIT_FACTORS[unit]).toFixed(2);
-    return { ...size, values: orient(size.values, fields.order.value), unit: fields.unit.value, radius };
+    const factor = UNIT_FACTORS[size.detectedUnit ?? fields.unit.value];
+    return { ...size, round: readRound().map(value => +(value * factor).toFixed(6)), unit: fields.unit.value };
   }
-  const validCustomSize = size => size && size.values.every(isPositive) && Number.isFinite(size.radius) && size.radius >= 0;
-  const customFormDefinition = size => customDefinition(customForm.elements.name.value.trim() || 'Custom Item', ...size.values, size.radius);
-  customForm.addEventListener('input', () => {
-    const size = readCustomForm();
-    find('#sizeHint').textContent = !customForm.elements.size.value.trim() ? '' : !size ? 'Enter three numbers, e.g. 380 x 158 x 8 mm'
+  // changing a radius out of a matching pair moves its partner along, so two always match
+  let lastRound = [0, 0, 0];
+  function linkRound(changed) {
+    const fields = customForm.elements, partner = [0, 1, 2].find(index => index !== changed && lastRound[index] === lastRound[changed]);
+    if (changed >= 0 && partner !== undefined && new Set(readRound()).size === 3) fields[ROUND_AXES[partner]].value = fields[ROUND_AXES[changed]].value;
+    lastRound = readRound();
+  }
+  const ROUND_HINT = 'Round: two of the three must match, e.g. 1, 1, 12';
+  const validCustomSize = size => !!size && validRound(size.round);
+  const customFormDefinition = size => customDefinition(customForm.elements.name.value.trim() || 'Custom Item', size.values, size.round);
+  customForm.addEventListener('focusin', () => lastRound = readRound());
+  customForm.addEventListener('input', ({ target }) => {
+    linkRound(ROUND_AXES.indexOf(target.name));
+    const size = readCustomForm(), hint = find('#sizeHint');
+    const definition = validCustomSize(size) ? customFormDefinition(size) : null;
+    hint.textContent = !customForm.elements.size.value.trim() ? '' : !size ? 'Enter three numbers, e.g. 380 x 158 x 8 mm'
+      : !definition ? ROUND_HINT
       : `${formatDimensions(size.values)} W × H × D · ${size.detectedUnit ? `${size.detectedUnit} detected` : `${size.unit} assumed`}`;
-    if (editing && validCustomSize(size)) { entries[editing.index].definition = customFormDefinition(size); commit(true); }
+    if (definition?.round.some((value, index) => value !== size.round[index])) hint.textContent += ` · Round limited to ${formatDimensions(definition.round)}`;
+    if (editing && definition) { entries[editing.index].definition = definition; commit(true); }
   });
   // editing turns any object into a custom one; changes preview live and revert on cancel
   function setEditing(state) {
@@ -791,19 +883,20 @@
   }
   customForm.elements.cancel.addEventListener('click', () => closePopovers());
   function startEditing(index) {
-    const { definition } = entries[index], fields = customForm.elements;
     closePopovers();
+    const entry = entries[index], fields = customForm.elements, { name, size, round } = placed(entry);
     find('[data-popover="custom"]').click();
-    setEditing({ index, original: definition });
-    fields.name.value = definition.name;
-    fields.size.value = `${[definition.width, definition.height, definition.depth].map(formatNumber).join(' x ')} mm`;
+    // the form shows the item as it stands, so the preview starts from that orientation
+    setEditing({ index, original: entry.definition, order: entry.order });
+    entry.order = AS_DEFINED;
+    fields.name.value = name;
+    fields.size.value = `${size.join(' x ')} mm`;
     fields.unit.value = 'mm';
-    fields.order.value = 'whd';
-    fields.radius.value = definition.radius || '';
+    ROUND_AXES.forEach((axis, index) => fields[axis].value = round[index] || '');
     customForm.dispatchEvent(new Event('input'));
   }
   function cancelEditing() {
-    entries[editing.index].definition = editing.original;
+    Object.assign(entries[editing.index], { definition: editing.original, order: editing.order });
     setEditing(null);
     customForm.reset();
     find('#sizeHint').textContent = '';
@@ -812,9 +905,9 @@
   customForm.addEventListener('submit', event => {
     event.preventDefault();
     const size = readCustomForm();
-    if (!validCustomSize(size)) return toast('Enter three positive numbers, e.g. 380 x 158 x 8 mm');
+    if (!validCustomSize(size)) return toast(size ? ROUND_HINT : 'Enter three positive numbers, e.g. 380 x 158 x 8 mm');
     if (editing) { entries[editing.index].definition = customFormDefinition(size); setEditing(null); customForm.reset(); closePopovers(); }
-    else entries.push({ definition: customFormDefinition(size), turn: 0, tip: 0, roll: 0 });
+    else entries.push({ definition: customFormDefinition(size), order: AS_DEFINED });
     commit(true);
   });
 
@@ -1187,7 +1280,9 @@
       forButton('i', find('[data-popover="library"]')),
       forButton('a', find('[data-popover="custom"]')),
       [[' ', 'Shift+ '], 'Next / Previous Item', event => pickNext(event.shiftKey ? -1 : 1)],
-      [['t'], 'Turn Selected', forPicked('turn')],
+      [['x'], 'Tip Selected', forPicked('tip')],
+      [['y'], 'Turn Selected', forPicked('turn')],
+      [['z'], 'Roll Selected', forPicked('roll')],
       [['e'], 'Edit Selected', forPicked('edit')],
       [['Delete', 'Backspace'], 'Remove Selected', forPicked('remove')],
       forButton('Shift+c', clearButton),

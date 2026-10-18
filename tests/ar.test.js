@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
@@ -89,145 +89,147 @@ function setup(options = {}) {
   };
 }
 
-test('AR prepares lazily, then launches synchronously from a fresh second tap', async () => {
-  const app = setup();
-  assert.equal(app.stats.imports, 0);
-  await app.click();
-  assert.equal(app.stats.exports, 1);
-  assert.equal(app.stats.scale, .001);
-  assert.equal(app.activations.length, 0);
-  assert.equal(app.button.label.hidden, true);
-  assert.equal(app.button.title, 'Start AR');
-  assert.equal(app.button.disabled, false);
-  assert.equal(app.pendingListeners(), 0);
-  assert.equal(app.timerCount(), 0);
-  await app.click();
-  assert.equal(app.activations.length, 1);
-  assert.equal(app.activations[0].freshTap, true);
-  assert.equal(app.stats.exports, 1);
-});
-
-test('Quick Look conversion completes before the fresh launch tap', async () => {
-  const conversion = deferred(), app = setup({ ios: true, conversion });
-  const preparing = app.click();
-  await flush();
-  assert.equal(app.button.disabled, true);
-  assert.equal(app.stats.conversions, 1);
-  await app.click();
-  assert.equal(app.activations.length, 0);
-  conversion.resolve('blob:prepared-usdz');
-  await preparing;
-  await app.click();
-  assert.deepEqual(app.activations, [{ freshTap: true, iosSrc: 'blob:prepared-usdz' }]);
-});
-
-test('repeated taps during model loading do not overlap exports or revoke the active URL', async () => {
-  const app = setup({ autoLoad: false });
-  const first = app.click(), second = app.click();
-  await flush();
-  await second;
-  assert.equal(app.stats.exports, 1);
-  assert.deepEqual(app.revoked, []);
-  assert.equal(app.button.disabled, true);
-  app.viewer.emit('load');
-  await first;
-  assert.equal(app.activations.length, 0);
-});
-
-for (const failure of ['error', 'timeout']) {
-  test(`AR load ${failure} reports a failure, cleans up and permits retry`, async () => {
-    const app = setup({ autoLoad: false });
-    const first = app.click();
-    await flush();
-    if (failure === 'error') app.viewer.emit('error'); else app.timeout();
-    await first;
-    assert.match(app.messages.at(-1), /Tap AR to retry/);
+describe('AR', () => {
+  test('prepares lazily, then launches synchronously from a fresh second tap', async () => {
+    const app = setup();
+    assert.equal(app.stats.imports, 0);
+    await app.click();
+    assert.equal(app.stats.exports, 1);
+    assert.equal(app.stats.scale, .001);
+    assert.equal(app.activations.length, 0);
+    assert.equal(app.button.label.hidden, true);
+    assert.equal(app.button.title, 'Start AR');
     assert.equal(app.button.disabled, false);
     assert.equal(app.pendingListeners(), 0);
     assert.equal(app.timerCount(), 0);
-    assert.equal(app.viewer.src, null);
-    assert.deepEqual(app.revoked, ['blob:model-1']);
-    const retry = app.click();
-    await flush();
-    app.viewer.emit('load');
-    await retry;
-    assert.equal(app.button.label.hidden, true);
-    assert.equal(app.button.title, 'Start AR');
-    assert.equal(app.stats.exports, 2);
+    await app.click();
+    assert.equal(app.activations.length, 1);
+    assert.equal(app.activations[0].freshTap, true);
+    assert.equal(app.stats.exports, 1);
   });
-}
 
-test('asynchronous launch rejection is awaited, reported and retryable', async () => {
-  const launch = deferred(), app = setup({ launch });
-  await app.click();
-  const starting = app.click();
-  assert.equal(app.button.disabled, true);
-  await app.click();
-  assert.equal(app.activations.length, 1);
-  launch.reject(new Error('USDZ launch failed'));
-  await starting;
-  assert.match(app.messages.at(-1), /could not start/);
-  assert.equal(app.button.disabled, false);
-  assert.equal(app.button.label.hidden, true);
-  assert.equal(app.button.title, 'Start AR');
-});
+  test('converts for Quick Look before the fresh launch tap', async () => {
+    const conversion = deferred(), app = setup({ ios: true, conversion });
+    const preparing = app.click();
+    await flush();
+    assert.equal(app.button.disabled, true);
+    assert.equal(app.stats.conversions, 1);
+    await app.click();
+    assert.equal(app.activations.length, 0);
+    conversion.resolve('blob:prepared-usdz');
+    await preparing;
+    await app.click();
+    assert.deepEqual(app.activations, [{ freshTap: true, iosSrc: 'blob:prepared-usdz' }]);
+  });
 
-test('object placement keeps the viewer active until the session ends', async () => {
-  const app = setup();
-  await app.click();
-  for (const status of ['session-started', 'object-placed']) {
-    app.viewer.emit('ar-status', { status });
-    assert.equal(app.viewer.classList.active, true);
+  test('ignores repeated taps while the model loads', async () => {
+    const app = setup({ autoLoad: false });
+    const first = app.click(), second = app.click();
+    await flush();
+    await second;
+    assert.equal(app.stats.exports, 1);
+    assert.deepEqual(app.revoked, []);
+    assert.equal(app.button.disabled, true);
+    app.viewer.emit('load');
+    await first;
+    assert.equal(app.activations.length, 0);
+  });
+
+  for (const failure of ['error', 'timeout']) {
+    test(`reports a load ${failure}, cleans up and permits retry`, async () => {
+      const app = setup({ autoLoad: false });
+      const first = app.click();
+      await flush();
+      if (failure === 'error') app.viewer.emit('error'); else app.timeout();
+      await first;
+      assert.match(app.messages.at(-1), /Tap AR to retry/);
+      assert.equal(app.button.disabled, false);
+      assert.equal(app.pendingListeners(), 0);
+      assert.equal(app.timerCount(), 0);
+      assert.equal(app.viewer.src, null);
+      assert.deepEqual(app.revoked, ['blob:model-1']);
+      const retry = app.click();
+      await flush();
+      app.viewer.emit('load');
+      await retry;
+      assert.equal(app.button.label.hidden, true);
+      assert.equal(app.button.title, 'Start AR');
+      assert.equal(app.stats.exports, 2);
+    });
+  }
+
+  test('reports a rejected launch and permits retry', async () => {
+    const launch = deferred(), app = setup({ launch });
+    await app.click();
+    const starting = app.click();
     assert.equal(app.button.disabled, true);
     await app.click();
-  }
-  assert.equal(app.activations.length, 0);
-  app.viewer.emit('ar-status', { status: 'not-presenting' });
-  assert.equal(app.viewer.classList.active, false);
-  assert.equal(app.button.disabled, false);
-});
+    assert.equal(app.activations.length, 1);
+    launch.reject(new Error('USDZ launch failed'));
+    await starting;
+    assert.match(app.messages.at(-1), /could not start/);
+    assert.equal(app.button.disabled, false);
+    assert.equal(app.button.label.hidden, true);
+    assert.equal(app.button.title, 'Start AR');
+  });
 
-test('comparison changes invalidate both prepared files before the next launch', async () => {
-  const app = setup({ ios: true });
-  await app.click();
-  app.change();
-  assert.equal(app.button.label.textContent, '');
-  assert.deepEqual(app.revoked.sort(), ['blob:model-1', 'blob:usdz']);
-  assert.equal(app.viewer.src, null);
-  assert.equal(app.viewer.iosSrc, null);
-  await app.click();
-  assert.equal(app.stats.exports, 2);
-  assert.equal(app.activations.length, 0);
-});
+  test('keeps the viewer active until the session ends', async () => {
+    const app = setup();
+    await app.click();
+    for (const status of ['session-started', 'object-placed']) {
+      app.viewer.emit('ar-status', { status });
+      assert.equal(app.viewer.classList.active, true);
+      assert.equal(app.button.disabled, true);
+      await app.click();
+    }
+    assert.equal(app.activations.length, 0);
+    app.viewer.emit('ar-status', { status: 'not-presenting' });
+    assert.equal(app.viewer.classList.active, false);
+    assert.equal(app.button.disabled, false);
+  });
 
-test('comparison changes during preparation discard the stale model', async () => {
-  const app = setup({ autoLoad: false });
-  const first = app.click();
-  await flush();
-  app.change();
-  app.viewer.emit('load');
-  await first;
-  assert.equal(app.button.label.textContent, '');
-  assert.equal(app.viewer.src, null);
-  assert.match(app.messages.at(-1), /Comparison changed/);
-});
+  test('discards prepared files when the comparison changes', async () => {
+    const app = setup({ ios: true });
+    await app.click();
+    app.change();
+    assert.equal(app.button.label.textContent, '');
+    assert.deepEqual(app.revoked.sort(), ['blob:model-1', 'blob:usdz']);
+    assert.equal(app.viewer.src, null);
+    assert.equal(app.viewer.iosSrc, null);
+    await app.click();
+    assert.equal(app.stats.exports, 2);
+    assert.equal(app.activations.length, 0);
+  });
 
-test('module failures are handled and the next preparation retries loading', async () => {
-  const app = setup({ importFailure: true });
-  await app.click();
-  assert.match(app.messages.at(-1), /could not prepare/);
-  assert.equal(app.button.disabled, false);
-  await app.click();
-  assert.equal(app.stats.imports, 4);
-  assert.equal(app.button.label.hidden, true);
-  assert.equal(app.button.title, 'Start AR');
-});
+  test('discards a stale model when the comparison changes during preparation', async () => {
+    const app = setup({ autoLoad: false });
+    const first = app.click();
+    await flush();
+    app.change();
+    app.viewer.emit('load');
+    await first;
+    assert.equal(app.button.label.textContent, '');
+    assert.equal(app.viewer.src, null);
+    assert.match(app.messages.at(-1), /Comparison changed/);
+  });
 
-test('unsupported browsers clean up the prepared model without attempting launch', async () => {
-  const app = setup({ supported: false });
-  await app.click();
-  assert.match(app.messages.at(-1), /not available/);
-  assert.equal(app.viewer.src, null);
-  assert.equal(app.button.disabled, false);
-  assert.equal(app.activations.length, 0);
+  test('retries loading modules after a failure', async () => {
+    const app = setup({ importFailure: true });
+    await app.click();
+    assert.match(app.messages.at(-1), /could not prepare/);
+    assert.equal(app.button.disabled, false);
+    await app.click();
+    assert.equal(app.stats.imports, 4);
+    assert.equal(app.button.label.hidden, true);
+    assert.equal(app.button.title, 'Start AR');
+  });
+
+  test('cleans up without launching in unsupported browsers', async () => {
+    const app = setup({ supported: false });
+    await app.click();
+    assert.match(app.messages.at(-1), /not available/);
+    assert.equal(app.viewer.src, null);
+    assert.equal(app.button.disabled, false);
+    assert.equal(app.activations.length, 0);
+  });
 });

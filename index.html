@@ -2,11 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Visual Compare</title>
 <meta name="description" content="Compare the real-world size of phones, tablets, consoles, everyday items and your own dimensions, side by side in 3D.">
 <meta name="theme-color" content="#4f46e5">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 16.5l-5 -3l5 -3l5 3v5.5l-5 3z' /%3E %3Cpath d='M2 13.5v5.5l5 3' /%3E %3Cpath d='M7 16.545l5 -3.03' /%3E %3Cpath d='M17 16.5l-5 -3l5 -3l5 3v5.5l-5 3z' /%3E %3Cpath d='M12 19l5 3' /%3E %3Cpath d='M17 16.5l5 -3' /%3E %3Cpath d='M12 13.5v-5.5l-5 -3l5 -3l5 3v5.5' /%3E %3Cpath d='M7 5.03v5.455' /%3E %3Cpath d='M12 8l5 -3' /%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="style.css">
@@ -69,18 +71,13 @@
           <form id="customForm">
             <input name="name" placeholder="Name">
             <div class="size">
-              <label>Size<input name="size" placeholder="380 x 158 x 8 mm" required autocomplete="off"></label>
+              <label>Size<input name="size" placeholder="width x height x depth" required autocomplete="off"></label>
               <label>Unit<select name="unit"><option value="mm">mm</option><option value="cm">cm</option><option value="m">m</option><option value="in">in</option><option value="ft">ft</option></select></label>
             </div>
-            <div class="size">
-              <label>Orientation
-                <select name="order">
-                  <option value="auto">Auto: Thinnest Side Faces You</option>
-                  <option value="whd">As Typed: Width × Height × Depth</option>
-                  <option value="wdh">Width × Depth × Height</option>
-                </select>
-              </label>
-              <label>Corners<input name="radius" type="number" min="0" step="any" placeholder="0" title="Corner radius, same unit as the size"></label>
+            <div class="round" title="Radius of the edges running along width, height and depth, in the size's unit; two must match. 0, 33, 0 makes an upright can">
+              <label>Round W<input name="x" type="number" min="0" step="any" placeholder="0"></label>
+              <label>Round H<input name="y" type="number" min="0" step="any" placeholder="0"></label>
+              <label>Round D<input name="z" type="number" min="0" step="any" placeholder="0"></label>
             </div>
             <small id="sizeHint" class="hint"></small>
             <div class="actions">
