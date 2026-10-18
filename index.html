@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Visual Compare</title>
-<meta name="description" content="Compare the real-world size of phones, tablets, consoles, everyday objects and your own dimensions, side by side in 3D.">
+<meta name="description" content="Compare the real-world size of phones, tablets, consoles, everyday items and your own dimensions, side by side in 3D.">
 <meta name="theme-color" content="#4f46e5">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 16.5l-5 -3l5 -3l5 3v5.5l-5 3z' /%3E %3Cpath d='M2 13.5v5.5l5 3' /%3E %3Cpath d='M7 16.545l5 -3.03' /%3E %3Cpath d='M17 16.5l-5 -3l5 -3l5 3v5.5l-5 3z' /%3E %3Cpath d='M12 19l5 3' /%3E %3Cpath d='M17 16.5l5 -3' /%3E %3Cpath d='M12 13.5v-5.5l-5 -3l5 -3l5 3v5.5' /%3E %3Cpath d='M7 5.03v5.455' /%3E %3Cpath d='M12 8l5 -3' /%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -30,7 +30,7 @@
       </div>
       <div class="tools">
         <div class="segmented">
-          <button data-popover="custom" title="Add Object"><svg viewBox="0 0 24 24"><path d="M12 5l0 14" /> <path d="M5 12l14 0" /></svg></button><button data-popover="library" title="Objects"><svg viewBox="0 0 24 24"><path d="M4 4m0 1a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1z" /> <path d="M14 4m0 1a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1z" /> <path d="M4 14m0 1a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1z" /> <path d="M14 14m0 1a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1z" /></svg></button><button class="danger" id="clear" title="Clear Scene"><svg viewBox="0 0 24 24"><path d="M4 7l16 0" /> <path d="M10 11l0 6" /> <path d="M14 11l0 6" /> <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /> <path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" /></svg></button>
+          <button data-popover="custom" title="Add Item"><svg viewBox="0 0 24 24"><path d="M12 5l0 14" /> <path d="M5 12l14 0" /></svg></button><button data-popover="library" title="Items"><svg viewBox="0 0 24 24"><path d="M4 4m0 1a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1z" /> <path d="M14 4m0 1a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1z" /> <path d="M4 14m0 1a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1z" /> <path d="M14 14m0 1a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1z" /></svg></button><button class="danger" id="clear" title="Clear Scene"><svg viewBox="0 0 24 24"><path d="M4 7l16 0" /> <path d="M10 11l0 6" /> <path d="M14 11l0 6" /> <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /> <path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" /></svg></button>
         </div>
         <div class="segmented">
           <button data-setting="view" data-value="isometric" title="3D View"><svg viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg></button><button data-setting="view" data-value="top" title="Top View"><svg viewBox="0 0 24 24"><path d="M12 3 20 7.5 12 12 4 7.5z" fill="currentColor" stroke="none"/><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg></button><button data-setting="view" data-value="front" title="Front View"><svg viewBox="0 0 24 24"><path d="M4 7.5 12 12v9l-8-4.5z" fill="currentColor" stroke="none"/><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg></button><button data-setting="view" data-value="side" title="Side View"><svg viewBox="0 0 24 24"><path d="M20 7.5 12 12v9l8-4.5z" fill="currentColor" stroke="none"/><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg></button>
@@ -50,22 +50,22 @@
 
     <div class="scene">
       <div class="stage" id="stage">
-        <div id="empty" class="empty">Open Objects to start comparing sizes.</div>
+        <div id="empty" class="empty">Open Items to start comparing sizes.</div>
         <div id="scale" class="scale"></div>
         <div id="info" class="card info" hidden></div>
 
         <div id="library" class="card popover" hidden>
-          <h3>Objects</h3>
+          <h3>Items</h3>
           <label class="search">
             <svg viewBox="0 0 24 24"><path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0" /> <path d="M21 21l-6 -6" /></svg>
-            <input id="search" type="search" placeholder="Search Objects" autocomplete="off">
+            <input id="search" type="search" placeholder="Search Items" autocomplete="off">
           </label>
           <select id="category"></select>
           <ul id="results" class="results"></ul>
         </div>
 
         <div id="custom" class="card popover" hidden>
-          <h3>Add Object</h3>
+          <h3>Add Item</h3>
           <form id="customForm">
             <input name="name" placeholder="Name">
             <div class="size">
@@ -92,22 +92,22 @@
 
         <div id="settings" class="card popover" hidden>
           <h3>Options</h3>
-          <label class="row">Labels <input type="checkbox" data-option="labels"></label>
-          <label class="row">Perspective Camera <input type="checkbox" data-option="perspective"></label>
-          <label class="row">Auto-Rotate <input type="checkbox" data-option="autoRotate"></label>
-          <label class="row">Floor Grid <input type="checkbox" data-option="grid"></label>
-          <label class="row">Sort by Volume <input type="checkbox" data-option="sort"></label>
-          <div class="column">Align Width
+          <label class="row"><span class="setting-label">Labels <kbd class="shortcut-hint" aria-hidden="true">L</kbd></span><input type="checkbox" data-option="labels"></label>
+          <label class="row"><span class="setting-label">Perspective Camera <kbd class="shortcut-hint" aria-hidden="true">P</kbd></span><input type="checkbox" data-option="perspective"></label>
+          <label class="row"><span class="setting-label">Auto-Rotate <kbd class="shortcut-hint" aria-hidden="true">R</kbd></span><input type="checkbox" data-option="autoRotate"></label>
+          <label class="row"><span class="setting-label">Floor Grid <kbd class="shortcut-hint" aria-hidden="true">G</kbd></span><input type="checkbox" data-option="grid"></label>
+          <label class="row"><span class="setting-label">Sort by Volume <kbd class="shortcut-hint" aria-hidden="true">S</kbd></span><input type="checkbox" data-option="sort"></label>
+          <div class="column"><span class="setting-label">Align Width <span class="shortcut-hint" aria-hidden="true"><kbd>W</kbd> <kbd>Shift+W</kbd></span></span>
             <div class="segmented"><button data-setting="alignX" data-value="left">Left</button><button data-setting="alignX" data-value="center">Center</button><button data-setting="alignX" data-value="right">Right</button></div>
           </div>
-          <div class="column">Align Depth
+          <div class="column"><span class="setting-label">Align Depth <span class="shortcut-hint" aria-hidden="true"><kbd>D</kbd> <kbd>Shift+D</kbd></span></span>
             <div class="segmented"><button data-setting="alignZ" data-value="back">Back</button><button data-setting="alignZ" data-value="center">Center</button><button data-setting="alignZ" data-value="front">Front</button></div>
           </div>
-          <div class="column">Opacity
+          <div class="column"><span class="setting-label">Opacity <span class="shortcut-hint" aria-hidden="true"><kbd>O</kbd> <kbd>Shift+O</kbd></span></span>
             <div class="segmented"><button data-setting="opacity" data-value="0.25">25%</button><button data-setting="opacity" data-value="0.5">50%</button><button data-setting="opacity" data-value="0.75">75%</button><button data-setting="opacity" data-value="1">100%</button></div>
           </div>
-          <div class="column">Spacing
-            <div class="segmented"><button data-setting="spacing" data-value="0">None</button><button data-setting="spacing" data-value="1">Tight</button><button data-setting="spacing" data-value="5">Normal</button><button data-setting="spacing" data-value="20">Wide</button></div>
+          <div class="column"><span class="setting-label">Spacing <span class="shortcut-hint" aria-hidden="true"><kbd>[</kbd> <kbd>]</kbd></span></span>
+            <div class="segmented"><button data-setting="spacing" data-value="0">None</button><button data-setting="spacing" data-value="1">Tight</button><button data-setting="spacing" data-value="3">Normal</button><button data-setting="spacing" data-value="13">Wide</button></div>
           </div>
           <div class="column">Units
             <div class="segmented"><button data-setting="unit" data-value="mm">mm</button><button data-setting="unit" data-value="cm">cm</button><button data-setting="unit" data-value="in">in</button></div>
@@ -116,7 +116,7 @@
             <div class="segmented"><button data-theme="auto">Auto</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div>
           </div>
           <button id="reset" class="ghost">Reset Options</button>
-          <small class="hint">Press ? for keyboard shortcuts</small>
+          <small class="hint">Press ? for Keyboard Shortcuts</small>
         </div>
 
         <div id="shortcuts" class="card popover" hidden></div>

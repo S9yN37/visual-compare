@@ -8,10 +8,10 @@ See the real-world size of things side by side in 3D: phones, laptops, speakers,
 
 - **Layouts:** side by side, stacked, one behind another, or nested
 - **Views:** 3D, top, front and side
-- **Details:** volume, front area, footprint and size ratios for each object
+- **Details:** volume, front area, footprint and size ratios for each item
 - **Sharing:** the whole scene lives in the URL, so a link is a saved comparison
 - **Export:** PNG images and AR on phones (Quick Look on iOS, WebXR on Android)
-- **Objects:** a catalog of everyday things, plus custom sizes in mm, cm, m, in or ft
+- **Items:** a catalog of everyday things, plus custom sizes in mm, cm, m, in or ft
 - **Themes:** light, dark, or follow the system
 - **Keyboard shortcuts:** press `?` in the app
 

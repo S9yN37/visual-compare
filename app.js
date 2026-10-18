@@ -82,6 +82,8 @@
 
   const settingValue = (key, raw) => typeof DEFAULTS[key] === 'string' ? raw : +raw;
   function sanitizeSetting(key, raw) {
+    // Older links and sessions used 5% and 20% for Normal and Wide.
+    if (key === 'spacing') raw = ({ 5: '3', 20: '13' })[raw] ?? raw;
     if (find(`[data-setting="${key}"][data-value="${CSS.escape(raw)}"]`)) return settingValue(key, raw);
     if (find(`[data-option="${key}"]`) && Number.isFinite(+raw)) return +raw ? 1 : 0;
     return DEFAULTS[key];
@@ -275,7 +277,7 @@
     requestRender();
 
     const isNested = settings.layout === 'nest';
-    const opacity = isNested ? Math.min(settings.opacity, .45) : settings.opacity;
+    const opacity = settings.opacity * (isNested ? .5 : 1);
     rendered = entries.map((entry, index) => {
       const { css: color, rgb } = objectColor(index), volume = computeVolume(entry.definition);
       const mesh = new THREE.Mesh(createGeometry(entry.definition), new THREE.MeshStandardMaterial({
@@ -283,7 +285,7 @@
         emissiveIntensity: .35, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
       }));
       mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry, 20),
-        new THREE.LineBasicMaterial({ color: 0x0f172a, transparent: true, opacity: .35 })));
+        new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: opacity * .5, depthWrite: false })));
       mesh.rotation.set(entry.tip * Math.PI / 2, entry.turn * Math.PI / 2, entry.roll * Math.PI / 2, 'YXZ');
       mesh.userData = { index, volume };
       mesh.updateMatrixWorld();
@@ -312,8 +314,8 @@
       item.labelElement.className = labelsVisible() ? 'label' : 'label controls-only';
       item.labelElement.style.setProperty('--color', item.color);
       item.labelElement.innerHTML = `<div role="button" tabindex="0" aria-label="Select ${escapeHtml(item.entry.definition.name)}"><b>${escapeHtml(item.entry.definition.name)}</b><span>${describeSize(item.entry.definition, item.size.toArray())}</span></div>
-        <div class="label-actions" role="group" aria-label="Object orientation">
-          <button data-action="turn" title="Turn: rotate around the vertical axis (Y)" aria-label="Turn around the vertical axis">${ICONS.turn}</button>
+        <div class="label-actions" role="group" aria-label="Item orientation">
+          <button data-action="turn" title="Turn around the vertical axis (T when selected)" aria-label="Turn around the vertical axis">${ICONS.turn}</button>
           <button data-action="tip" title="Tip: rotate forwards (X axis)" aria-label="Tip forwards">${ICONS.tip}</button>
           <button data-action="roll" title="Roll: rotate in the front plane (Z axis)" aria-label="Roll in the front plane">${ICONS.roll}</button>
         </div>`;
@@ -324,7 +326,7 @@
         else if (event.target.closest('[role=button]')) pick(item.index);
       });
       item.labelElement.firstChild.addEventListener('keydown', event => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
+        if (event.key !== 'Enter') return;
         event.preventDefault();
         pick(item.index);
       });
@@ -380,6 +382,49 @@
     // orbiting away from Top, Front or Side leaves a free 3D view
     if (!controls.autoRotate && direction().distanceTo(directionBefore) > .001 && settings.view !== 'isometric') { settings.view = fittedView = 'isometric'; commit(false); }
   });
+  function rotateCamera(horizontal, vertical) {
+    if (!entries.length) return false;
+    controls.dispatchEvent({ type: 'start' });
+    const orbit = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+    orbit.theta += horizontal;
+    orbit.phi += vertical;
+    orbit.makeSafe();
+    camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(orbit));
+    controls.update();
+    controls.dispatchEvent({ type: 'end' });
+  }
+  function zoomCamera(factor) {
+    if (!entries.length) return false;
+    controls.dispatchEvent({ type: 'start' });
+    if (camera.isPerspectiveCamera) {
+      const offset = camera.position.clone().sub(controls.target);
+      offset.setLength(Math.max(controls.minDistance, Math.min(controls.maxDistance, controls.getDistance() / factor)));
+      camera.position.copy(controls.target).add(offset);
+    } else {
+      camera.zoom = Math.max(controls.minZoom, Math.min(controls.maxZoom, camera.zoom * factor));
+      camera.updateProjectionMatrix();
+    }
+    controls.update();
+    clipToScene();
+    requestRender();
+    controls.dispatchEvent({ type: 'end' });
+  }
+  function panCamera(horizontal, vertical) {
+    if (!entries.length) return false;
+    controls.dispatchEvent({ type: 'start' });
+    const height = camera.isPerspectiveCamera
+      ? 2 * controls.getDistance() * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))
+      : (camera.top - camera.bottom) / camera.zoom;
+    camera.updateMatrixWorld();
+    const offset = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).multiplyScalar(horizontal * height * .01);
+    offset.addScaledVector(new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1), vertical * height * .01);
+    camera.position.add(offset);
+    controls.target.add(offset);
+    controls.update();
+    clipToScene();
+    requestRender();
+    controls.dispatchEvent({ type: 'end' });
+  }
   function fitCamera(force = false) {
     if (!fitting && !force) return;
     // keep the orbit the user dragged to, unless the view preset changed
@@ -516,6 +561,7 @@
   }
 
   function renderTray() {
+    finishDrag();
     find('#selected').innerHTML = rendered.map(item => `<li class="chip ${pickedIndex === item.index ? 'picked' : ''}" data-index="${item.index}" style="--color:${item.color}" draggable="true" role="button" tabindex="0" aria-pressed="${pickedIndex === item.index}" title="Drag to reorder">
       <i></i><div><b>${escapeHtml(item.entry.definition.name)}</b><small>${describeSize(item.entry.definition, item.size.toArray())}</small></div></li>`).join('');
   }
@@ -528,7 +574,7 @@
     const comparisons = rendered.filter(other => other !== item)
       .map(other => `<li><span>vs ${escapeHtml(other.entry.definition.name)}</span><b>${formatRatio(item.volume / other.volume)}</b></li>`).join('');
     panel.style.setProperty('--color', item.color);
-    panel.innerHTML = `<header><i></i><h3>${escapeHtml(definition.name)}</h3><button data-action="close" title="Close">${ICONS.close}</button></header>
+    panel.innerHTML = `<header><i></i><h3>${escapeHtml(definition.name)}</h3><button data-action="close" title="Close (Esc)" aria-keyshortcuts="Escape">${ICONS.close}</button></header>
       <dl>
         <dt>Category</dt><dd>${escapeHtml(definition.label)}</dd>
         <dt>Size (W × H × D)</dt><dd>${formatDimensions([width, height, depth])}</dd>
@@ -539,8 +585,8 @@
       </dl>
       ${comparisons ? `<ul class="comparisons">${comparisons}</ul>` : ''}
       <div class="actions">
-        <button class="ghost" data-action="edit" title="Change name or size">Edit</button>
-        <button class="ghost remove" data-action="remove">Remove</button>
+        <button class="ghost" data-action="edit" title="Change name or size (E)" aria-keyshortcuts="E">Edit</button>
+        <button class="ghost remove" data-action="remove" title="Remove Selected (Delete / Backspace)" aria-keyshortcuts="Delete Backspace">Remove</button>
       </div>`;
   }
 
@@ -592,7 +638,7 @@
     const removed = entries.splice(start, count);
     pickedIndex = null;
     commit(true);
-    toast(removed.length === 1 ? `Removed ${removed[0].definition.name}` : `Removed ${removed.length} objects`, () => {
+    toast(removed.length === 1 ? `Removed ${removed[0].definition.name}` : `Removed ${removed.length} items`, () => {
       entries.splice(start, 0, ...removed);
       commit(true);
     });
@@ -640,7 +686,7 @@
     find('#sessionStore').textContent = sessions.label;
     sessionList.innerHTML = list.map(session => `<li data-name="${escapeHtml(session.name)}">
       <button class="load" data-action="load" title="Load"><b>${escapeHtml(session.name)}</b>
-      <small>${session.count} object${session.count === 1 ? '' : 's'} · ${formatDate(session.savedAt)}</small></button>
+      <small>${session.count} item${session.count === 1 ? '' : 's'} · ${formatDate(session.savedAt)}</small></button>
       <button class="rename" data-action="rename" title="Rename">${ICONS.pencil}</button>
       <button class="delete" data-action="delete" title="Delete">${ICONS.close}</button></li>`).join('')
       || '<li class="none">No saved sessions yet.</li>';
@@ -729,7 +775,7 @@
     return { ...size, values: orient(size.values, fields.order.value), unit: fields.unit.value, radius };
   }
   const validCustomSize = size => size && size.values.every(isPositive) && Number.isFinite(size.radius) && size.radius >= 0;
-  const customFormDefinition = size => customDefinition(customForm.elements.name.value.trim() || 'Custom Object', ...size.values, size.radius);
+  const customFormDefinition = size => customDefinition(customForm.elements.name.value.trim() || 'Custom Item', ...size.values, size.radius);
   customForm.addEventListener('input', () => {
     const size = readCustomForm();
     find('#sizeHint').textContent = !customForm.elements.size.value.trim() ? '' : !size ? 'Enter three numbers, e.g. 380 x 158 x 8 mm'
@@ -739,7 +785,7 @@
   // editing turns any object into a custom one; changes preview live and revert on cancel
   function setEditing(state) {
     editing = state;
-    find('#custom h3').textContent = editing ? 'Edit Object' : 'Add Object';
+    find('#custom h3').textContent = editing ? 'Edit Item' : 'Add Item';
     customForm.elements.save.textContent = editing ? 'Save' : 'Add';
     customForm.elements.cancel.hidden = !editing;
   }
@@ -790,7 +836,7 @@
   });
   tray.addEventListener('keydown', event => {
     const chip = event.target.closest('.chip');
-    if (!chip || (event.key !== 'Enter' && event.key !== ' ')) return;
+    if (!chip || event.key !== 'Enter') return;
     event.preventDefault();
     pick(+chip.dataset.index);
   });
@@ -799,24 +845,79 @@
     if (chip) startEditing(+chip.dataset.index);
   });
   let dragIndex = null;
+  let draggedChip = null, draggedSize = null;
+  let dropPlaceholder = null, indicatedLocation = null;
+  let lastDragPosition = '';
+  function finishDrag() {
+    if (draggedChip) draggedChip.hidden = false;
+    draggedChip = draggedSize = dragIndex = null;
+    dropPlaceholder?.remove();
+    dropPlaceholder = indicatedLocation = null;
+    lastDragPosition = '';
+  }
+  function dropLocation(event) {
+    const distanceToPointer = rect => Math.max(rect.left - event.clientX, 0, event.clientX - rect.right) ** 2
+      + Math.max(rect.top - event.clientY, 0, event.clientY - rect.bottom) ** 2;
+    let closest = indicatedLocation, distance = dropPlaceholder ? distanceToPointer(dropPlaceholder.getBoundingClientRect()) : Infinity;
+    for (const chip of tray.querySelectorAll('.chip')) {
+      if (chip.hidden) continue;
+      const rect = chip.getBoundingClientRect();
+      const squared = distanceToPointer(rect);
+      if (squared < distance) {
+        distance = squared;
+        closest = { chip, after: event.clientX >= rect.left + rect.width / 2 };
+      }
+    }
+    return closest;
+  }
   tray.addEventListener('dragstart', event => {
-    dragIndex = +event.target.closest('.chip').dataset.index;
+    draggedChip = event.target.closest('.chip');
+    draggedSize = draggedChip.getBoundingClientRect();
+    dragIndex = +draggedChip.dataset.index;
+    event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('text/plain', '');  // Firefox will not start a drag without data
   });
   tray.addEventListener('dragover', event => {
-    const chip = event.target.closest('.chip');
-    if (!chip || dragIndex === null) return;
+    if (dragIndex === null) return;
     event.preventDefault();
-    findAll('#selected .over').forEach(other => other.classList.remove('over'));
-    chip.classList.add('over');
+    event.dataTransfer.dropEffect = 'move';
+    if (dropPlaceholder) dropPlaceholder.style.visibility = '';
+    const position = [event.clientX, event.clientY, tray.scrollTop, tray.clientWidth].join(',');
+    // Reflow alone must not move the drop slot again.
+    if (position === lastDragPosition) return;
+    lastDragPosition = position;
+    const location = dropLocation(event);
+    if (!location) return;
+    if (indicatedLocation?.chip === location.chip && indicatedLocation.after === location.after) return;
+    if (!dropPlaceholder) {
+      dropPlaceholder = document.createElement('li');
+      dropPlaceholder.className = 'drop-placeholder';
+      dropPlaceholder.setAttribute('aria-hidden', 'true');
+      dropPlaceholder.style.width = `${draggedSize.width}px`;
+      dropPlaceholder.style.height = `${draggedSize.height}px`;
+    }
+    indicatedLocation = location;
+    tray.insertBefore(dropPlaceholder, location.after ? location.chip.nextSibling : location.chip);
+    draggedChip.hidden = true;  // Wait until dragover so the browser captures the drag image first.
   });
-  tray.addEventListener('dragend', () => { dragIndex = null; findAll('#selected .over').forEach(chip => chip.classList.remove('over')); });
+  tray.addEventListener('dragleave', event => {
+    if (dropPlaceholder && !tray.contains(event.relatedTarget)) {
+      dropPlaceholder.style.visibility = 'hidden';
+      lastDragPosition = '';
+    }
+  });
+  tray.addEventListener('dragend', finishDrag);
   tray.addEventListener('drop', event => {
-    const chip = event.target.closest('.chip');
-    if (!chip || dragIndex === null) return;
+    if (dragIndex === null) return;
     event.preventDefault();
-    const picked = entries[pickedIndex], edited = editing && entries[editing.index], [moved] = entries.splice(dragIndex, 1);
-    entries.splice(+chip.dataset.index, 0, moved);
+    const location = indicatedLocation || dropLocation(event), from = dragIndex;
+    finishDrag();
+    if (!location) return;
+    const boundary = +location.chip.dataset.index + Number(location.after);
+    const destination = boundary - Number(from < boundary);
+    if (destination === from) return;
+    const picked = entries[pickedIndex], edited = editing && entries[editing.index], [moved] = entries.splice(from, 1);
+    entries.splice(destination, 0, moved);
     pickedIndex = picked ? entries.indexOf(picked) : null;
     if (editing) editing.index = entries.indexOf(edited);
     settings.sort = 0;
@@ -1031,14 +1132,28 @@
     if (!entries.length) return;
     if (clearButton.classList.contains('confirm')) { clearButton.classList.remove('confirm'); return removeEntries(0, entries.length); }
     clearButton.classList.add('confirm');
-    toast('Click the bin again to clear the scene');
+    toast('Press Shift+C or click the bin again to clear the scene');
     clearTimeout(clearTimer);
     clearTimer = setTimeout(() => clearButton.classList.remove('confirm'), 3000);
   });
 
-  const forButton = (key, button) => [[key], button.title, () => button.click()];
+  const KEY_NAMES = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', Delete: 'Del', Backspace: '⌫', Escape: 'Esc', 'Shift+f': 'Shift+F', 'Shift+c': 'Shift+C', ' ': 'Space', 'Shift+ ': 'Shift+Space' };
+  const keyName = key => KEY_NAMES[key] ?? (key.startsWith('Shift+') ? 'Shift+' + keyName(key.slice(6)) : key.toUpperCase());
+  const forButton = (key, button) => {
+    const label = button.title;
+    button.title = `${label} (${keyName(key)})`;
+    button.setAttribute('aria-keyshortcuts', keyName(key));
+    return [[key], label, () => button.click()];
+  };
+  function stepSetting(key, offset, wrap = false) {
+    const buttons = [...findAll(`[data-setting="${key}"]`)];
+    const index = buttons.findIndex(button => settingValue(key, button.dataset.value) === settings[key]);
+    const next = wrap ? (index + offset + buttons.length) % buttons.length : Math.max(0, Math.min(buttons.length - 1, index + offset));
+    if (next !== index) buttons[next]?.click();
+  }
+  const cycleShortcut = (key, setting, label) => [[key, `Shift+${key}`], label, event => stepSetting(setting, event.shiftKey ? -1 : 1, true)];
   const forPicked = action => () => pickedIndex != null && applyAction(pickedIndex, action);
-  const pickNext = offset => () => {
+  const pickNext = offset => {
     const count = entries.length;
     if (!count) return false;
     const next = ((pickedIndex ?? (offset > 0 ? -1 : count)) + offset + count) % count;
@@ -1047,29 +1162,64 @@
   const help = find('#shortcuts');
   const toggleHelp = () => { const opening = help.hidden; closePopovers(); help.hidden = !opening; fitCamera(); };
   // digits follow the toolbar order: views, then layouts; an action returning false leaves the key to the browser
-  const SHORTCUTS = [
-    ...[...findAll('.tools [data-setting]')].map((button, index) => forButton(String(index + 1), button)),
-    forButton('f', fitButton),
-    forButton('o', find('[data-popover="library"]')),
-    forButton('a', find('[data-popover="custom"]')),
-    forButton(',', find('[data-popover="settings"]')),
-    [['ArrowLeft'], 'Select Previous Object', pickNext(-1)],
-    [['ArrowRight'], 'Select Next Object', pickNext(1)],
-    [['t'], 'Turn Selected', forPicked('turn')],
-    [['e'], 'Edit Selected', forPicked('edit')],
-    [['Delete', 'Backspace'], 'Remove Selected', forPicked('remove')],
-    [['Escape'], 'Close or Deselect', () => find('.popover:not([hidden])') ? closePopovers() : forPicked('close')()],
-    [['?'], 'Keyboard Shortcuts', toggleHelp],
-  ];
-  const KEY_NAMES = { ArrowLeft: '←', ArrowRight: '→', Delete: 'Del', Backspace: '⌫', Escape: 'Esc' };
-  help.innerHTML = '<h3>Keyboard Shortcuts</h3><dl>' + SHORTCUTS.map(([keys, label]) =>
-    `<dt>${keys.map(key => `<kbd>${KEY_NAMES[key] ?? key.toUpperCase()}</kbd>`).join(' ')}</dt><dd>${label}</dd>`).join('') + '</dl>';
+  const viewShortcuts = [...findAll('.tools [data-setting]')].map((button, index) => forButton(String(index + 1), button));
+  const optionShortcut = (key, option, label) => {
+    const input = find(`[data-option="${option}"]`);
+    input.title = `${label} (${keyName(key)})`;
+    input.setAttribute('aria-keyshortcuts', keyName(key));
+    return [[key], label, () => input.click()];
+  };
+  const SHORTCUT_GROUPS = {
+    'View & Camera': [
+      ...viewShortcuts.slice(0, 4),
+      [['ArrowLeft', 'ArrowRight'], 'Rotate Left / Right', event => rotateCamera((event.key === 'ArrowLeft' ? 1 : -1) * Math.PI / 180, 0)],
+      [['ArrowUp', 'ArrowDown'], 'Rotate Up / Down', event => rotateCamera(0, (event.key === 'ArrowUp' ? 1 : -1) * Math.PI / 180)],
+      [['Shift+ArrowLeft', 'Shift+ArrowRight'], 'Pan Left / Right', event => panCamera(event.key === 'ArrowLeft' ? 1 : -1, 0)],
+      [['Shift+ArrowUp', 'Shift+ArrowDown'], 'Pan Up / Down', event => panCamera(0, event.key === 'ArrowUp' ? -1 : 1)],
+      [['+', '-'], 'Zoom In / Out', event => zoomCamera(event.key === '-' ? 1 / 1.01 : 1.01)],
+      forButton('f', fitButton),
+      ...(document.fullscreenEnabled ? [forButton('Shift+f', find('#fullscreen'))] : []),
+      optionShortcut('p', 'perspective', 'Perspective Camera'),
+      optionShortcut('r', 'autoRotate', 'Auto-Rotate'),
+    ],
+    'Items & Layout': [
+      ...viewShortcuts.slice(4),
+      forButton('i', find('[data-popover="library"]')),
+      forButton('a', find('[data-popover="custom"]')),
+      [[' ', 'Shift+ '], 'Next / Previous Item', event => pickNext(event.shiftKey ? -1 : 1)],
+      [['t'], 'Turn Selected', forPicked('turn')],
+      [['e'], 'Edit Selected', forPicked('edit')],
+      [['Delete', 'Backspace'], 'Remove Selected', forPicked('remove')],
+      forButton('Shift+c', clearButton),
+    ],
+    'Display & Options': [
+      optionShortcut('l', 'labels', 'Labels'),
+      optionShortcut('g', 'grid', 'Floor Grid'),
+      optionShortcut('s', 'sort', 'Sort by Volume'),
+      cycleShortcut('w', 'alignX', 'Align Width'),
+      cycleShortcut('d', 'alignZ', 'Align Depth'),
+      cycleShortcut('o', 'opacity', 'Opacity'),
+      [['[', ']'], 'Spacing', event => stepSetting('spacing', event.key === '[' ? -1 : 1)],
+      forButton(',', find('[data-popover="settings"]')),
+      [['Escape'], 'Close or Deselect', () => find('.popover:not([hidden])') ? closePopovers() : forPicked('close')()],
+      [['?'], 'Keyboard Shortcuts', toggleHelp],
+    ],
+  };
+  const SHORTCUTS = Object.values(SHORTCUT_GROUPS).flat();
+  help.innerHTML = '<h3>Keyboard Shortcuts</h3><div class="shortcut-groups">' + Object.entries(SHORTCUT_GROUPS).map(([group, shortcuts]) =>
+    `<section><h4>${escapeHtml(group)}</h4><dl>` + shortcuts.map(([keys, label]) =>
+      `<dt>${keys.map(key => `<kbd>${keyName(key)}</kbd>`).join(' ')}</dt><dd>${escapeHtml(label)}</dd>`).join('') + '</dl></section>').join('') + '</div>';
   document.addEventListener('keydown', event => {
-    if (event.ctrlKey || event.metaKey || event.altKey) return;
-    if (event.target.closest('input, select, textarea') && event.key !== 'Escape') return;
-    const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
-    const shortcut = SHORTCUTS.find(([keys]) => keys.includes(key));
-    if (shortcut && shortcut[2]() !== false) event.preventDefault();
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+    if ((event.target.isContentEditable || event.target.closest('input, select, textarea')) && event.key !== 'Escape') return;
+    if (event.key === ' ' && event.target.closest('button, a')) return;
+    const key = event.key === '=' ? '+' : event.key.length === 1 ? event.key.toLowerCase() : event.key;
+    const shortcut = (event.shiftKey && SHORTCUTS.find(([keys]) => keys.includes(`Shift+${key}`)))
+      || (!(event.shiftKey && key === 'f') && SHORTCUTS.find(([keys]) => keys.includes(key)));
+    if (!shortcut) return;
+    const repeatable = key.startsWith('Arrow') || [' ', '-', '+', '=', '[', ']'].includes(key);
+    if (event.repeat && !repeatable) { event.preventDefault(); return; }
+    if (shortcut[2](event) !== false) event.preventDefault();
   });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => build());
   // the theme is a viewer preference, so it stays in this browser instead of the URL

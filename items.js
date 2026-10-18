@@ -190,7 +190,7 @@ const CATEGORIES = {
     ['Wharfedale Elysian 1R', 263, 490, 315, 4],
     ['Wharfedale Elysian 2R', 334, 700, 462, 4],
   ] },
-  common: { label: 'Everyday Objects', items: [
+  common: { label: 'Everyday Items', items: [
     ['A3 Paper', 297, 420, 0.1],
     ['A4 Paper', 210, 297, 0.1],
     ['A5 Paper', 148, 210, 0.1],
