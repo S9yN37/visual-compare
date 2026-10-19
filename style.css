@@ -144,9 +144,12 @@ input[type=checkbox] { width: auto; box-shadow: none; accent-color: var(--accent
 .shortcut-hint { color: var(--muted); white-space: nowrap; }
 .popover .segmented { display: flex; }
 .popover .segmented button { flex: 1; justify-content: center; }
-#sessionForm { display: flex; gap: 6px; }
-#sessionForm input { flex: 1; min-width: 0; }
-#sessionForm button { flex: none; }
+#sessionForm, #authForm { display: flex; gap: 6px; }
+#sessionForm input, #authForm input { flex: 1; min-width: 0; }
+#sessionForm button, #authForm button { flex: none; }
+#authForm { flex-wrap: wrap; }
+#authForm:has([name="code"]:not([hidden])) [name="email"] { flex-basis: 100%; }
+#signOut { justify-self: end; }
 #sessionList { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 #sessionList li { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; }
 #sessionList li:hover { background: var(--background); }

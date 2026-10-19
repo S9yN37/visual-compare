@@ -19,15 +19,9 @@ On a supported phone, tap AR to prepare the comparison, then tap **Start AR** to
 
 ## Run Locally
 
-No build step. Open `index.html` in a browser, or run the optional server to share saved sessions between devices:
+No build step. Open `index.html` in a browser; signing in needs it served over http, e.g. `python3 -m http.server 8000`.
 
-```sh
-npm start   # http://localhost:8765, needs Node 22.13+
-```
-
-Without the server, sessions are saved in the browser.
-
-GitHub Pages automatically builds and deploys pushes to `main`. The build stamps script and CSS URLs with a content hash and generates `version.json`; no manual versioning is needed. The app checks for a newer version on startup and reloads once while preserving the comparison URL. Failed update checks do not prevent startup. Local use needs no build step; `npm run build` optionally generates the deployable `_site/` folder.
+GitHub Pages automatically builds and deploys pushes to `main`. The build stamps script and CSS URLs with a content hash and generates `version.json`; no manual versioning is needed. The app checks for a newer version on startup and reloads once while preserving the comparison URL. Failed update checks do not prevent startup. `npm run build` optionally generates the deployable `_site/` folder.
 
 ## Project Structure
 
@@ -35,7 +29,29 @@ GitHub Pages automatically builds and deploys pushes to `main`. The build stamps
 | --- | --- |
 | `index.html`, `style.css`, `app.js` | The app |
 | `items.js` | The catalog: `[name, width, height, depth, x, y, z]` in mm (see Shapes) |
-| `server.js` | Optional static server with a shared sessions API (SQLite) |
+
+Three.js and model-viewer load from jsDelivr, pinned to a version and checked against the `integrity` hashes in `index.html`'s import map; changing a version means updating its hash. The deployed page also gets a Content Security Policy from the build.
+
+## Sessions
+
+Signed out, sessions are saved in the browser. Signed in with an emailed link or code, they are saved to a Supabase account instead, private to each user; browser sessions stay in the browser. `SUPABASE_URL` and `SUPABASE_KEY` (the publishable key) at the top of the sessions code in `app.js` point to the project, which needs:
+
+```sql
+create table visualcompare_sessions (
+  owner uuid not null default auth.uid() references auth.users on delete cascade,
+  name text not null,
+  query text not null,
+  saved bigint not null,
+  primary key (owner, name),
+  check (length(name) <= 100 and length(query) <= 50000)
+);
+alter table visualcompare_sessions enable row level security;
+grant select, insert, update, delete on visualcompare_sessions to authenticated;
+create policy "Own sessions" on visualcompare_sessions for all to authenticated
+  using ((select auth.uid()) = owner) with check ((select auth.uid()) = owner);
+```
+
+In Authentication → URL Configuration, the Site URL and Redirect URLs must include the app's address (e.g. `https://s9yn37.github.io/visual-compare/**`), so the link returns to the app. A link only signs in the browser that asked for it; anywhere else, type the code. Custom SMTP is needed to edit the Magic Link and Confirm Signup templates, which include `{{ .Token }}` for the code, and to email anyone outside the project's team.
 
 ## Shapes
 
@@ -46,8 +62,8 @@ Every item is a box written as it stands — width left–right, height up, dept
 | Brick | 215, 65, 102.5 | — |
 | Phone | 78, 163.4, 8.75 | 2, 2, 12 |
 | Coin | 23.25, 23.25, 2.33 | 0, 0, 11.625 |
-| Upright can | 66, 115, 66 | 0, 33, 0 |
-| Battery with rounded rims | 14.5, 50.5, 14.5 | 1, 7.25, 1 |
+| Can | 66, 115, 66 | 0, 33, 0 |
+| Battery | 14.5, 50.5, 14.5 | 1, 7.25, 1 |
 | Ball | 67, 67, 67 | 33.5, 33.5, 33.5 |
 
 The odd radius rounds the outline around its axis and the matching pair rounds that outline's rims, so two of the three must match. Rims larger than the outline radius meet in a mitered corner.
@@ -64,4 +80,4 @@ Catalog items are `category/slug`, followed by `!` and the new size order when t
 
 ## License
 
-[MIT](LICENSE)
+[AGPL-3.0](LICENSE)

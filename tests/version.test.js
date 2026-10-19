@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,6 +25,11 @@ describe('Versioning', () => {
       for (const file of ['app.js', 'items.js', 'style.css']) assert.equal(read(file), readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'));
       assert.match(version, /^[a-f0-9]{12}$/);
       for (const file of ['app.js', 'items.js', 'style.css']) assert.ok(html.includes(`${file}?v=${version}`));
+      const policy = html.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/)[1];
+      const inlineScripts = [...html.matchAll(/<script(?: type="importmap")?>([\s\S]*?)<\/script>/g)];
+      assert.equal(inlineScripts.length, 2);
+      for (const [, code] of inlineScripts) assert.ok(policy.includes(`'sha256-${createHash('sha256').update(code).digest('base64')}'`));
+      assert.match(policy, /connect-src 'self' https:\/\/\w+\.supabase\.co /);
       writeFileSync(join(directory, '_site', 'obsolete.js'), 'old asset');
       run();
       assert.equal(read('version.json'), original);

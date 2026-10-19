@@ -16,6 +16,13 @@
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
   "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+}, "integrity": {
+  "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js": "sha384-GY5FqjttLCFRt/McQbyaVdCk2O1IQtOeX8Py6NfD89BIAsIyJFRl4UgSXrk2vXAk",
+  "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/controls/OrbitControls.js": "sha384-aJoe4qqS/DgF2jh9njAuvA6QIveJYoCuYOfYjdFY8P3eawzmc9bEQ40jq2TvOyuP",
+  "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/renderers/CSS2DRenderer.js": "sha384-9CXQqRjuKfYvfHem9p/LPU6b7PaeeiDuC/gp1qRz3bEV9txWG5wi9XhrkE/0/Dn9",
+  "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/environments/RoomEnvironment.js": "sha384-9ItPPH2vgKbkvgrqTKq7ptGYe+WuAnqlZtlqleJW4/CJjnM5R7C+efD6iS7ADPJ9",
+  "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/exporters/GLTFExporter.js": "sha384-cmiUVRZWWohnebNbGOmBZ2huvu6QROAG9Q2MkU7WyFkieWzfb6CX/UCQTpNCv95/",
+  "https://cdn.jsdelivr.net/npm/@google/model-viewer@4.1.0/dist/model-viewer.min.js": "sha384-T4vc5AP9W2o3EVVQC6Is5mbKqFE2eysxg1XHwaZLquK0SjtY+4cLHoN3j1mK/MmB"
 } }
 </script>
 <script>try { const theme = localStorage.getItem('visualCompare.theme'); if (theme) document.documentElement.dataset.theme = theme; } catch {}</script>
@@ -126,6 +133,12 @@
             <button class="primary" name="save">Save</button>
           </form>
           <ul id="sessionList"></ul>
+          <form id="authForm">
+            <input name="email" type="email" placeholder="Email to Sync Sessions" autocomplete="email" required>
+            <input name="code" placeholder="Code" inputmode="numeric" autocomplete="one-time-code" hidden>
+            <button class="ghost" name="submit">Send Email</button>
+          </form>
+          <button id="signOut" class="ghost" hidden>Sign Out</button>
         </div>
         <div id="toast" class="toast" hidden></div>
       </div>

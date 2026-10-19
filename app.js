@@ -745,34 +745,93 @@
     },
     async remove(name) { return this.write(this.read().filter(session => session.name !== name)); },
   };
-  const serverSessions = {
-    label: 'Saved on the server, shared with everyone who uses it',
-    async request(path = '', method = 'GET', body) {
-      const response = await fetch('/api/sessions' + path, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
-      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `Server replied ${response.status}`);
-      return response.json();
-    },
-    list() { return this.request(); },
-    save(session) { return this.request('', 'POST', session); },
-    rename(name, newName) { return this.request('/' + encodeURIComponent(name), 'PATCH', { name: newName }); },
-    remove(name) { return this.request('/' + encodeURIComponent(name), 'DELETE'); },
+  // the publishable key is public by design; row level security keeps each account's rows private
+  const SUPABASE_URL = 'https://cspfxytrzezcngqptsnl.supabase.co', SUPABASE_KEY = 'sb_publishable_Q18YqbHlLuRjTyCBI6cUkQ_xkGpjhhk';
+  async function supabase(path, { method = 'GET', body, token, prefer } = {}) {
+    // a paused free project also fails here, not with an http error
+    const response = await fetch(SUPABASE_URL + path, { method, body: body && JSON.stringify(body), headers: {
+      apikey: SUPABASE_KEY, 'Content-Type': 'application/json', ...(token && { Authorization: 'Bearer ' + token }), ...(prefer && { Prefer: prefer }) } })
+      .catch(() => { throw new Error('Can’t reach Supabase, check your connection'); });
+    const result = await response.json().catch(() => null);
+    if (response.ok) return result;
+    const error = new Error(result?.code === '23505' ? 'A session with that name already exists' : result?.msg || result?.message || `Supabase replied ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  const AUTH_STORAGE_KEY = 'visualCompare.auth';
+  const auth = {
+    read() { try { return JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY)); } catch { return null; } },
+    write(session) { try { session ? localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session)) : localStorage.removeItem(AUTH_STORAGE_KEY); } catch {} },
   };
-  let sessions = localSessions;
-  if (location.protocol.startsWith('http')) { try { await serverSessions.list(); sessions = serverSessions; } catch {} }
+  async function accessToken() {
+    let session = auth.read();
+    if (session?.expires_at * 1000 < Date.now() + 60000) {
+      try { session = await supabase('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: session.refresh_token } }); }
+      catch (error) {
+        // a rejected refresh token ends the sign-in; a network error keeps it for the next try
+        if (!(error.status >= 400 && error.status < 500)) throw error;
+        session = null;
+      }
+      auth.write(session);
+    }
+    // also signed out from another tab
+    if (!session) { chooseSessions(); throw new Error('Signed out, please sign in again'); }
+    return session.access_token;
+  }
+  const byName = name => '?name=eq.' + encodeURIComponent(name);
+  const accountSessions = {
+    get label() { return `Saved to your account: ${auth.read()?.user.email}`; },
+    async request(filter, options) { return supabase('/rest/v1/visualcompare_sessions' + filter, { ...options, token: await accessToken() }); },
+    list() { return this.request('?select=name,query,savedAt:saved&order=saved.desc'); },
+    async save({ name, query }) {
+      await this.request('?on_conflict=owner,name', { method: 'POST', body: { name, query, saved: Date.now() }, prefer: 'resolution=merge-duplicates' });
+      return this.list();
+    },
+    async rename(name, newName) { await this.request(byName(name), { method: 'PATCH', body: { name: newName } }); return this.list(); },
+    async remove(name) { await this.request(byName(name), { method: 'DELETE' }); return this.list(); },
+  };
 
-  const sessionForm = find('#sessionForm'), sessionList = find('#sessionList');
-  let sessionNames = new Set();
+  const sessionForm = find('#sessionForm'), sessionList = find('#sessionList'), authForm = find('#authForm'), signOutButton = find('#signOut');
+  let sessions, sessionNames = new Set();
+  function chooseSessions() {
+    sessions = auth.read() ? accountSessions : localSessions;
+    authForm.hidden = sessions === accountSessions;
+    signOutButton.hidden = !authForm.hidden;
+    find('#sessionStore').textContent = sessions.label;
+  }
+  chooseSessions();
+  // PKCE: a link only signs in the browser that asked for it, so nobody can slip in a link to their own account
+  const VERIFIER_STORAGE_KEY = 'visualCompare.verifier';
+  const signIn = new URLSearchParams(location.search), authCode = signIn.get('code'), authError = signIn.get('error_description');
+  if (authCode || authError) {
+    for (const key of ['code', 'error', 'error_code', 'error_description']) signIn.delete(key);
+    history.replaceState(null, '', location.pathname + (signIn.size ? '?' + signIn : '') + location.hash);
+    let verifier = null;
+    try { verifier = localStorage.getItem(VERIFIER_STORAGE_KEY); localStorage.removeItem(VERIFIER_STORAGE_KEY); } catch {}
+    if (authError) toast(authError);
+    else if (!verifier) toast('Open the link in the browser that asked for it, or type the code');
+    else supabase('/auth/v1/token?grant_type=pkce', { method: 'POST', body: { auth_code: authCode, code_verifier: verifier } })
+      .then(session => { auth.write(session); chooseSessions(); toast(`Signed in as ${session.user.email}`); }, error => toast(error.message));
+  }
+  async function pkceChallenge() {
+    const verifier = [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, '0')).join('');
+    localStorage.setItem(VERIFIER_STORAGE_KEY, verifier);
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+    return btoa(String.fromCharCode(...digest)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
 
   const syncSessionButton = () => { sessionForm.elements.save.textContent = sessionNames.has(sessionForm.elements.name.value.trim()) ? 'Update' : 'Save'; };
 
   function renderSessions(list) {
     sessionNames = new Set(list.map(session => session.name));
-    find('#sessionStore').textContent = sessions.label;
-    sessionList.innerHTML = list.map(session => `<li data-name="${escapeHtml(session.name)}">
+    sessionList.innerHTML = list.map(session => {
+      const count = (new URLSearchParams(session.query).get('items') || '').split(',').filter(Boolean).length;
+      return `<li data-name="${escapeHtml(session.name)}">
       <button class="load" data-action="load" title="Load"><b>${escapeHtml(session.name)}</b>
-      <small>${session.count} item${session.count === 1 ? '' : 's'} · ${formatDate(session.savedAt)}</small></button>
+      <small>${count} item${count === 1 ? '' : 's'} · ${formatDate(session.savedAt)}</small></button>
       <button class="rename" data-action="rename" title="Rename">${ICONS.pencil}</button>
-      <button class="delete" data-action="delete" title="Delete">${ICONS.close}</button></li>`).join('')
+      <button class="delete" data-action="delete" title="Delete">${ICONS.close}</button></li>`;
+    }).join('')
       || '<li class="none">No saved sessions yet.</li>';
     syncSessionButton();
   }
@@ -780,13 +839,51 @@
     try { renderSessions(await work()); } catch (error) { toast(error.message); }
   };
 
+  // the email has a link and a code; the code also works where the link opens elsewhere, like an installed app
+  authForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const { code, submit } = authForm.elements, email = authForm.elements.email.value.trim();
+    submit.disabled = true;
+    try {
+      if (code.hidden) {
+        // the link returns to this page, comparison included
+        await supabase('/auth/v1/otp?redirect_to=' + encodeURIComponent(location.href.split('#')[0]), { method: 'POST',
+          body: { email, code_challenge: await pkceChallenge(), code_challenge_method: 's256' } });
+        code.hidden = false;
+        code.focus();
+        submit.textContent = 'Sign In';
+        toast(`Sign-in email sent to ${email}`);
+      } else {
+        auth.write(await supabase('/auth/v1/verify', { method: 'POST', body: { type: 'email', email, token: code.value.trim() } }));
+        authForm.reset();
+        resetAuthForm();
+        chooseSessions();
+        refreshSessions(() => sessions.list());
+        toast(`Signed in as ${email}`);
+      }
+    } catch (error) { toast(error.message); }
+    submit.disabled = false;
+  });
+  function resetAuthForm() {
+    authForm.elements.code.hidden = true;
+    authForm.elements.submit.textContent = 'Send Email';
+  }
+  authForm.elements.email.addEventListener('input', resetAuthForm);
+  signOutButton.addEventListener('click', () => {
+    // revokes only this device's refresh token; signing out doesn't wait for it
+    supabase('/auth/v1/logout?scope=local', { method: 'POST', token: auth.read()?.access_token }).catch(() => {});
+    auth.write(null);
+    chooseSessions();
+    refreshSessions(() => sessions.list());
+  });
+
   sessionForm.addEventListener('input', syncSessionButton);
   sessionForm.addEventListener('submit', event => {
     event.preventDefault();
     const name = sessionForm.elements.name.value.trim();
     if (!name) return;
     refreshSessions(async () => {
-      const list = await sessions.save({ name, query: toQuery(), count: entries.length });
+      const list = await sessions.save({ name, query: toQuery() });
       toast(`${sessionNames.has(name) ? 'Updated' : 'Saved'} “${name}”`);
       return list;
     });
