@@ -84,7 +84,7 @@
   const ARRANGE_AXIS = { row: 'x', line: 'z', stack: 'y' };
   const ALIGNMENTS = { left: 'min', back: 'min', center: 'center', right: 'max', front: 'max' };
   const SAMPLE_QUERY = 'items=audio/kef-r3,audio/edifier-r1280dbs,audio/buchardt-e50-s,audio/arendal-1528-bookshelf-8,audio/cambridge-audio-l-r-x';
-  let settings = { ...DEFAULTS }, entries = [], pickedIndex = null, rendered = [];
+  let settings = { ...DEFAULTS }, entries = [], pickedIndex = null, rendered = [], editing = null;
 
   function toQuery() {
     const parameters = new URLSearchParams();
@@ -127,8 +127,11 @@
   function commit(refit) {
     const query = toQuery();
     invalidatePreparedAR(query);
-    history.replaceState(null, '', query ? '?' + query : location.pathname);
-    try { localStorage.setItem('visualCompare.last', query); } catch {}
+    // an edit's live preview is kept only once saved
+    if (!editing) {
+      history.replaceState(null, '', query ? '?' + query : location.pathname);
+      try { localStorage.setItem('visualCompare.last', query); } catch {}
+    }
     if (!rendered.length) setFitting(true);
     build();
     renderResults(); renderTray(); renderInfo(); syncControls();
@@ -207,7 +210,7 @@
   const stage = find('#stage');
   const mobileLayout = matchMedia('(max-width: 860px)');
   const labelsVisible = () => settings.labels && !mobileLayout.matches;
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -253,7 +256,7 @@
   });
 
   function layoutLabels() {
-    const stageBox = stage.getBoundingClientRect(), placed = [];
+    const stageBox = stage.getBoundingClientRect(), taken = [];
     const elements = rendered.map(item => item.labelElement).filter(Boolean);
     for (const element of elements) element.style.translate = '';
     const labels = elements.flatMap(labelElement => {
@@ -265,11 +268,11 @@
       const left = stageBox.left + 6, right = stageBox.right - rectangle.width - 6;
       const top = stageBox.top + 6, bottom = stageBox.bottom - rectangle.height - 36;
       let x = Math.max(left, Math.min(rectangle.left, right)), y = Math.max(top, Math.min(rectangle.top, bottom));
-      const fits = point => placed.every(other => point.left >= other.right + 4 || point.left + rectangle.width + 4 <= other.left
+      const fits = point => taken.every(other => point.left >= other.right + 4 || point.left + rectangle.width + 4 <= other.left
         || point.top >= other.bottom + 4 || point.top + rectangle.height + 4 <= other.top);
       if (!fits({ left: x, top: y })) {
-        const xs = [x, left, right, ...placed.flatMap(other => [other.right + 4, other.left - rectangle.width - 4])];
-        const ys = [y, top, bottom, ...placed.flatMap(other => [other.bottom + 4, other.top - rectangle.height - 4])];
+        const xs = [x, left, right, ...taken.flatMap(other => [other.right + 4, other.left - rectangle.width - 4])];
+        const ys = [y, top, bottom, ...taken.flatMap(other => [other.bottom + 4, other.top - rectangle.height - 4])];
         const candidates = xs.flatMap(left => ys.map(top => ({ left, top })))
           .filter(point => point.left >= left && point.left <= right && point.top >= top && point.top <= bottom)
           .sort((a, b) => (a.left - x) ** 2 + (a.top - y) ** 2 - (b.left - x) ** 2 - (b.top - y) ** 2);
@@ -277,7 +280,7 @@
         if (free) { x = free.left; y = free.top; }
       }
       labelElement.style.translate = `${x - rectangle.left}px ${y - rectangle.top}px`;
-      placed.push({ left: x, right: x + rectangle.width, top: y, bottom: y + rectangle.height });
+      taken.push({ left: x, right: x + rectangle.width, top: y, bottom: y + rectangle.height });
     }
   }
 
@@ -397,7 +400,7 @@
         else if (event.target.closest('[role=button]')) pick(item.index);
       });
       item.labelElement.firstChild.addEventListener('keydown', event => {
-        if (event.key !== 'Enter') return;
+        if (event.key !== 'Enter' && event.key !== ' ') return;
         event.preventDefault();
         pick(item.index);
       });
@@ -689,7 +692,9 @@
       const { name, size, round } = placed(entry);
       Object.assign(entry, { definition: customDefinition(name, size, round), order: AS_DEFINED });
     }
-    commit(true);
+    // the edit form previews and commits the turned item
+    if (editing?.index === index) fillCustomForm(placed(entry));
+    else commit(true);
     if (focused) {
       const button = rendered[index]?.labelElement.querySelector(`[data-action="${action}"]`);
       requestAnimationFrame(() => button?.focus({ preventScroll: true }));
@@ -698,7 +703,7 @@
 
   function toggle(key) {
     const index = entries.findIndex(entry => entry.definition.key === key);
-    if (index >= 0) { entries.splice(index, 1); pickedIndex = null; }
+    if (index >= 0) changeEntries(() => entries.splice(index, 1));
     else entries.push({ definition: catalogByKey.get(key), order: AS_DEFINED });
     commit(true);
   }
@@ -719,13 +724,19 @@
   }
   function removeEntries(start, count) {
     if (editing) closePopovers();
-    const removed = entries.splice(start, count);
-    pickedIndex = null;
+    const removed = changeEntries(() => entries.splice(start, count));
     commit(true);
     toast(removed.length === 1 ? `Removed ${removed[0].definition.name}` : `Removed ${removed.length} items`, () => {
-      entries.splice(start, 0, ...removed);
+      changeEntries(() => entries.splice(start, 0, ...removed));
       commit(true);
     });
+  }
+  // indexes shift, so the picked and edited items are found again by identity
+  function changeEntries(change) {
+    const picked = entries[pickedIndex], edited = editing && entries[editing.index], result = change();
+    pickedIndex = entries.includes(picked) ? entries.indexOf(picked) : null;
+    if (editing) editing.index = entries.indexOf(edited);
+    return result;
   }
 
   const SESSIONS_STORAGE_KEY = 'visualCompare.sessions';
@@ -734,16 +745,15 @@
     read() { try { return JSON.parse(localStorage.getItem(SESSIONS_STORAGE_KEY)) || []; } catch { return []; } },
     write(list) {
       try { localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(list)); } catch { throw new Error('Browser storage is unavailable'); }
-      return list;
     },
     async list() { return this.read(); },
-    async save(session) { return this.write([{ ...session, savedAt: Date.now() }, ...this.read().filter(other => other.name !== session.name)]); },
+    async save(session) { this.write([session, ...this.read().filter(other => other.name !== session.name)]); },
     async rename(name, newName) {
       const list = this.read();
       if (list.some(session => session.name === newName)) throw new Error('A session with that name already exists');
-      return this.write(list.map(session => session.name === name ? { ...session, name: newName } : session));
+      this.write(list.map(session => session.name === name ? { ...session, name: newName } : session));
     },
-    async remove(name) { return this.write(this.read().filter(session => session.name !== name)); },
+    async remove(name) { this.write(this.read().filter(session => session.name !== name)); },
   };
   // the publishable key is public by design; row level security keeps each account's rows private
   const SUPABASE_URL = 'https://cspfxytrzezcngqptsnl.supabase.co', SUPABASE_KEY = 'sb_publishable_Q18YqbHlLuRjTyCBI6cUkQ_xkGpjhhk';
@@ -783,21 +793,56 @@
     get label() { return `Saved to your account: ${auth.read()?.user.email}`; },
     async request(filter, options) { return supabase('/rest/v1/visualcompare_sessions' + filter, { ...options, token: await accessToken() }); },
     list() { return this.request('?select=name,query,savedAt:saved&order=saved.desc'); },
-    async save({ name, query }) {
-      await this.request('?on_conflict=owner,name', { method: 'POST', body: { name, query, saved: Date.now() }, prefer: 'resolution=merge-duplicates' });
-      return this.list();
+    save({ name, query, savedAt }) {
+      return this.request('?on_conflict=owner,name', { method: 'POST', body: { name, query, saved: savedAt }, prefer: 'resolution=merge-duplicates' });
     },
-    async rename(name, newName) { await this.request(byName(name), { method: 'PATCH', body: { name: newName } }); return this.list(); },
-    async remove(name) { await this.request(byName(name), { method: 'DELETE' }); return this.list(); },
+    rename(name, newName) { return this.request(byName(name), { method: 'PATCH', body: { name: newName } }); },
+    remove(name) { return this.request(byName(name), { method: 'DELETE' }); },
   };
 
   const sessionForm = find('#sessionForm'), sessionList = find('#sessionList'), authForm = find('#authForm'), signOutButton = find('#signOut');
-  let sessions, sessionNames = new Set();
+  // the list shows from memory at once and loads in the background; changes reach the store one at a time, in order
+  let sessions, savedSessions = null, sessionNames = new Set(), sessionsVersion = 0, sessionsQueue = Promise.resolve();
+  const queueSessions = work => sessionsQueue = sessionsQueue.catch(() => {}).then(work);
+  // a load started before a later change would undo it on screen, so it is dropped
+  function loadSessions() {
+    const version = sessionsVersion, store = sessions;
+    if (!savedSessions) renderSessions();
+    queueSessions(() => store.list()).then(
+      list => { if (version === sessionsVersion) { savedSessions = list; renderSessions(); } },
+      error => { if (version === sessionsVersion && !savedSessions) renderSessions(error.message); });
+  }
+  function changeSessions(list, work) {
+    const store = sessions;
+    savedSessions = list;
+    sessionsVersion++;
+    renderSessions();
+    queueSessions(() => work(store)).then(loadSessions, error => { toast(error.message); loadSessions(); });
+  }
   function chooseSessions() {
     sessions = auth.read() ? accountSessions : localSessions;
     authForm.hidden = sessions === accountSessions;
     signOutButton.hidden = !authForm.hidden;
     find('#sessionStore').textContent = sessions.label;
+    savedSessions = null;
+    sessionsVersion++;
+    renderSessions();
+    loadSessions();
+  }
+  const syncSessionButton = () => { sessionForm.elements.save.textContent = sessionNames.has(sessionForm.elements.name.value.trim()) ? 'Update' : 'Save'; };
+  function renderSessions(empty = 'Loading…') {
+    const list = savedSessions ?? [];
+    sessionNames = new Set(list.map(session => session.name));
+    sessionList.innerHTML = list.map(session => {
+      const count = (new URLSearchParams(session.query).get('items') || '').split(',').filter(Boolean).length;
+      return `<li data-name="${escapeHtml(session.name)}">
+      <button class="load" data-action="load" title="Load"><b>${escapeHtml(session.name)}</b>
+      <small>${count} item${count === 1 ? '' : 's'} · ${formatDate(session.savedAt)}</small></button>
+      <button class="rename" data-action="rename" title="Rename">${ICONS.pencil}</button>
+      <button class="delete" data-action="delete" title="Delete">${ICONS.close}</button></li>`;
+    }).join('')
+      || `<li class="none">${escapeHtml(savedSessions ? 'No saved sessions yet.' : empty)}</li>`;
+    syncSessionButton();
   }
   chooseSessions();
   // PKCE: a link only signs in the browser that asked for it, so nobody can slip in a link to their own account
@@ -820,24 +865,6 @@
     return btoa(String.fromCharCode(...digest)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
 
-  const syncSessionButton = () => { sessionForm.elements.save.textContent = sessionNames.has(sessionForm.elements.name.value.trim()) ? 'Update' : 'Save'; };
-
-  function renderSessions(list) {
-    sessionNames = new Set(list.map(session => session.name));
-    sessionList.innerHTML = list.map(session => {
-      const count = (new URLSearchParams(session.query).get('items') || '').split(',').filter(Boolean).length;
-      return `<li data-name="${escapeHtml(session.name)}">
-      <button class="load" data-action="load" title="Load"><b>${escapeHtml(session.name)}</b>
-      <small>${count} item${count === 1 ? '' : 's'} · ${formatDate(session.savedAt)}</small></button>
-      <button class="rename" data-action="rename" title="Rename">${ICONS.pencil}</button>
-      <button class="delete" data-action="delete" title="Delete">${ICONS.close}</button></li>`;
-    }).join('')
-      || '<li class="none">No saved sessions yet.</li>';
-    syncSessionButton();
-  }
-  const refreshSessions = async work => {
-    try { renderSessions(await work()); } catch (error) { toast(error.message); }
-  };
 
   // the email has a link and a code; the code also works where the link opens elsewhere, like an installed app
   authForm.addEventListener('submit', async event => {
@@ -858,7 +885,6 @@
         authForm.reset();
         resetAuthForm();
         chooseSessions();
-        refreshSessions(() => sessions.list());
         toast(`Signed in as ${email}`);
       }
     } catch (error) { toast(error.message); }
@@ -874,19 +900,15 @@
     supabase('/auth/v1/logout?scope=local', { method: 'POST', token: auth.read()?.access_token }).catch(() => {});
     auth.write(null);
     chooseSessions();
-    refreshSessions(() => sessions.list());
   });
 
   sessionForm.addEventListener('input', syncSessionButton);
   sessionForm.addEventListener('submit', event => {
     event.preventDefault();
-    const name = sessionForm.elements.name.value.trim();
+    const name = sessionForm.elements.name.value.trim(), session = { name, query: toQuery(), savedAt: Date.now() };
     if (!name) return;
-    refreshSessions(async () => {
-      const list = await sessions.save({ name, query: toQuery() });
-      toast(`${sessionNames.has(name) ? 'Updated' : 'Saved'} “${name}”`);
-      return list;
-    });
+    toast(`${sessionNames.has(name) ? 'Updated' : 'Saved'} “${name}”`);
+    changeSessions([session, ...(savedSessions ?? []).filter(other => other.name !== name)], store => store.save(session));
   });
 
   function startRename(row, name) {
@@ -896,20 +918,17 @@
     row.querySelector('.load').replaceWith(input);
     input.focus();
     input.select();
+    // a background load would redraw the list and drop the field
+    sessionsVersion++;
     let finished = false;
-    const finish = async () => {
+    const finish = () => {
       if (finished) return;
       finished = true;
       const newName = input.value.trim();
-      if (!newName || newName === name) return refreshSessions(() => sessions.list());
-      try {
-        const list = await sessions.rename(name, newName);
-        if (sessionForm.elements.name.value.trim() === name) sessionForm.elements.name.value = newName;
-        renderSessions(list);
-      } catch (error) {
-        finished = false;
-        toast(error.message);
-      }
+      if (!newName || newName === name) return renderSessions();
+      if (sessionNames.has(newName)) { finished = false; return toast('A session with that name already exists'); }
+      if (sessionForm.elements.name.value.trim() === name) sessionForm.elements.name.value = newName;
+      changeSessions(savedSessions.map(session => session.name === name ? { ...session, name: newName } : session), store => store.rename(name, newName));
     };
     input.addEventListener('keydown', event => {
       if (event.key === 'Enter') finish();
@@ -926,49 +945,80 @@
       case 'rename': return startRename(row, name);
       case 'delete':
         // permanent, so it takes a second click
-        if (!action.classList.contains('confirm')) { action.classList.add('confirm'); action.textContent = 'Delete?'; return; }
-        return refreshSessions(() => sessions.remove(name));
-      default: refreshSessions(async () => {
-        const list = await sessions.list(), session = list.find(other => other.name === name);
-        if (!session) throw new Error('That session no longer exists');
-        fromQuery(session.query);
+        if (!action.classList.contains('confirm')) { sessionsVersion++; action.classList.add('confirm'); action.textContent = 'Delete?'; return; }
+        return changeSessions(savedSessions.filter(session => session.name !== name), store => store.remove(name));
+      default:
+        fromQuery(savedSessions.find(session => session.name === name).query);
         commit(true);
         sessionForm.elements.name.value = name;
-        toast(`Loaded “${session.name}”`);
-        return list;
-      });
+        syncSessionButton();
+        toast(`Loaded “${name}”`);
     }
   });
 
   const customForm = find('#customForm');
-  let editing = null;
-  // radii are in the size's unit; a blank field is 0
+  // radii are in the menu's unit; a blank field is 0
   const ROUND_AXES = ['x', 'y', 'z'], readRound = () => ROUND_AXES.map(axis => +customForm.elements[axis].value);
   function readCustomForm() {
     const fields = customForm.elements, size = parseSize(fields.size.value, fields.unit.value);
     if (!size) return null;
-    const factor = UNIT_FACTORS[size.detectedUnit ?? fields.unit.value];
+    const factor = UNIT_FACTORS[fields.unit.value];
     return { ...size, round: readRound().map(value => +(value * factor).toFixed(6)), unit: fields.unit.value };
   }
-  // changing a radius out of a matching pair moves its partner along, so two always match
-  let lastRound = [0, 0, 0];
+  // the odd radius moves alone and the other two move together, also while all three match; all 0 frees the next change to be odd
+  let oddRound = -1;
   function linkRound(changed) {
-    const fields = customForm.elements, partner = [0, 1, 2].find(index => index !== changed && lastRound[index] === lastRound[changed]);
-    if (changed >= 0 && partner !== undefined && new Set(readRound()).size === 3) fields[ROUND_AXES[partner]].value = fields[ROUND_AXES[changed]].value;
-    lastRound = readRound();
+    const fields = customForm.elements;
+    if (oddRound < 0) oddRound = changed;
+    else if (changed >= 0 && changed !== oddRound) fields[ROUND_AXES[3 - changed - oddRound]].value = fields[ROUND_AXES[changed]].value;
+    const round = readRound();
+    if (round.every(value => !value)) oddRound = -1;
+    else if (new Set(round).size === 2) oddRound = round.findIndex(value => round.indexOf(value) === round.lastIndexOf(value));
+  }
+  // a changed radius stays between 0 and the shape's limit: half the other two sizes for the odd one, half the smallest size for the pair
+  function limitRound() {
+    for (const axis of ROUND_AXES) if (/^-/.test(customForm.elements[axis].value)) customForm.elements[axis].value = 0;
+    const size = readCustomForm();
+    if (!size) return;
+    const halves = size.values.map(value => value / 2), factor = UNIT_FACTORS[size.unit];
+    size.round.forEach((radius, index) => {
+      const limit = Math.min(...halves.filter((_, other) => index !== oddRound || other !== index));
+      if (radius > limit) customForm.elements[ROUND_AXES[index]].value = +(limit / factor).toFixed(6);
+    });
+  }
+  // the unit lives in the menu; switching it rewrites the size and radii in the new unit, so the item keeps its size
+  const UNIT_OPTIONS = { inch: 'in', inches: 'in', '"': 'in', '″': 'in', foot: 'ft', feet: 'ft', "'": 'ft', '′': 'ft' };
+  const inUnit = (millimeters, unit) => +(millimeters / UNIT_FACTORS[unit]).toFixed(5);
+  let formUnit = 'mm';
+  function setUnit(from, to) {
+    const fields = customForm.elements, size = parseSize(fields.size.value, from);
+    if (size) fields.size.value = size.values.map(value => inUnit(value, to)).join(' x ');
+    for (const axis of ROUND_AXES) if (fields[axis].value) fields[axis].value = inUnit(+(fields[axis].value * UNIT_FACTORS[from]).toFixed(2), to);
+    fields.unit.value = formUnit = to;
+  }
+  // a unit typed into the size moves to the menu on paste, blur or submit; not while typing, where "mm" passes through "m"
+  function takeUnit() {
+    const fields = customForm.elements, detected = parseSize(fields.size.value, fields.unit.value)?.detectedUnit;
+    if (detected) setUnit(fields.unit.value, UNIT_OPTIONS[detected] ?? detected);
   }
   const ROUND_HINT = 'Round: two of the three must match, e.g. 1, 1, 12';
   const validCustomSize = size => !!size && validRound(size.round);
   const customFormDefinition = size => customDefinition(customForm.elements.name.value.trim() || 'Custom Item', size.values, size.round);
-  customForm.addEventListener('focusin', () => lastRound = readRound());
-  customForm.addEventListener('input', ({ target }) => {
-    linkRound(ROUND_AXES.indexOf(target.name));
+  customForm.addEventListener('reset', () => oddRound = -1);
+  customForm.elements.size.addEventListener('change', takeUnit);
+  customForm.addEventListener('input', ({ target, inputType }) => {
+    const changed = ROUND_AXES.indexOf(target.name);
+    if (target.name === 'unit') setUnit(formUnit, target.value);
+    if (inputType === 'insertFromPaste') takeUnit();
+    formUnit = customForm.elements.unit.value;
+    linkRound(changed);
+    if (changed >= 0) limitRound();
     const size = readCustomForm(), hint = find('#sizeHint');
     const definition = validCustomSize(size) ? customFormDefinition(size) : null;
     hint.textContent = !customForm.elements.size.value.trim() ? '' : !size ? 'Enter three numbers, e.g. 380 x 158 x 8 mm'
       : !definition ? ROUND_HINT
-      : `${formatDimensions(size.values)} W × H × D · ${size.detectedUnit ? `${size.detectedUnit} detected` : `${size.unit} assumed`}`;
-    if (definition?.round.some((value, index) => value !== size.round[index])) hint.textContent += ` · Round limited to ${formatDimensions(definition.round)}`;
+      : `${formatDimensions(size.values)} (W × H × D)`;
+    if (definition && formatDimensions(definition.round) !== formatDimensions(size.round)) hint.textContent += ` · Round limited to ${formatDimensions(definition.round)}`;
     if (editing && definition) { entries[editing.index].definition = definition; commit(true); }
   });
   // editing turns any object into a custom one; changes preview live and revert on cancel
@@ -981,13 +1031,17 @@
   customForm.elements.cancel.addEventListener('click', () => closePopovers());
   function startEditing(index) {
     closePopovers();
-    const entry = entries[index], fields = customForm.elements, { name, size, round } = placed(entry);
+    const entry = entries[index], shape = placed(entry);
     find('[data-popover="custom"]').click();
     // the form shows the item as it stands, so the preview starts from that orientation
     setEditing({ index, original: entry.definition, order: entry.order });
     entry.order = AS_DEFINED;
+    fillCustomForm(shape);
+  }
+  function fillCustomForm({ name, size, round }) {
+    const fields = customForm.elements;
     fields.name.value = name;
-    fields.size.value = `${size.join(' x ')} mm`;
+    fields.size.value = size.join(' x ');
     fields.unit.value = 'mm';
     ROUND_AXES.forEach((axis, index) => fields[axis].value = round[index] || '');
     customForm.dispatchEvent(new Event('input'));
@@ -1001,6 +1055,7 @@
   }
   customForm.addEventListener('submit', event => {
     event.preventDefault();
+    takeUnit();
     const size = readCustomForm();
     if (!validCustomSize(size)) return toast(size ? ROUND_HINT : 'Enter three positive numbers, e.g. 380 x 158 x 8 mm');
     if (editing) { entries[editing.index].definition = customFormDefinition(size); setEditing(null); customForm.reset(); closePopovers(); }
@@ -1015,24 +1070,31 @@
   categorySelect.addEventListener('change', renderResults);
   find('#results').addEventListener('click', event => {
     const button = event.target.closest('[data-key]');
-    if (button) toggle(button.dataset.key);
+    if (!button) return;
+    const focused = document.activeElement === button;
+    toggle(button.dataset.key);
+    // the list is redrawn, so focus moves to the new button
+    if (focused) find(`#results [data-key="${CSS.escape(button.dataset.key)}"]`).focus({ preventScroll: true });
   });
 
   const tray = find('#selected');
   tray.addEventListener('click', event => {
     const chip = event.target.closest('.chip');
-    if (!chip) return;
+    // the second click of a double-click opens the editor instead
+    if (!chip || event.detail > 1) return;
     pick(+chip.dataset.index);
   });
   tray.addEventListener('keydown', event => {
     const chip = event.target.closest('.chip');
-    if (!chip || event.key !== 'Enter') return;
+    if (!chip || (event.key !== 'Enter' && event.key !== ' ')) return;
     event.preventDefault();
     pick(+chip.dataset.index);
   });
   tray.addEventListener('dblclick', event => {
     const chip = event.target.closest('.chip');
-    if (chip) startEditing(+chip.dataset.index);
+    if (!chip) return;
+    if (pickedIndex !== +chip.dataset.index) pick(+chip.dataset.index);
+    startEditing(+chip.dataset.index);
   });
   let dragIndex = null;
   let draggedChip = null, draggedSize = null;
@@ -1106,10 +1168,7 @@
     const boundary = +location.chip.dataset.index + Number(location.after);
     const destination = boundary - Number(from < boundary);
     if (destination === from) return;
-    const picked = entries[pickedIndex], edited = editing && entries[editing.index], [moved] = entries.splice(from, 1);
-    entries.splice(destination, 0, moved);
-    pickedIndex = picked ? entries.indexOf(picked) : null;
-    if (editing) editing.index = entries.indexOf(edited);
+    changeEntries(() => entries.splice(destination, 0, ...entries.splice(from, 1)));
     settings.sort = 0;
     commit(true);
   });
@@ -1154,7 +1213,7 @@
     closePopovers();
     popover.hidden = !opening;
     button.classList.toggle('active', opening);
-    if (opening && popover.id === 'sessions') refreshSessions(() => sessions.list());
+    if (opening && popover.id === 'sessions') loadSessions();
     if (opening && popover.id === 'custom') customForm.elements.name.focus();
     if (opening && popover.id === 'library') find('#search').focus();
     fitCamera();
@@ -1409,7 +1468,7 @@
     const shortcut = (event.shiftKey && SHORTCUTS.find(([keys]) => keys.includes(`Shift+${key}`)))
       || (!(event.shiftKey && key === 'f') && SHORTCUTS.find(([keys]) => keys.includes(key)));
     if (!shortcut) return;
-    const repeatable = key.startsWith('Arrow') || [' ', '-', '+', '=', '[', ']'].includes(key);
+    const repeatable = key.startsWith('Arrow') || [' ', '-', '+', '[', ']'].includes(key);
     if (event.repeat && !repeatable) { event.preventDefault(); return; }
     if (shortcut[2](event) !== false) event.preventDefault();
   });

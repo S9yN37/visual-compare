@@ -53,6 +53,7 @@ function trayWithLayout(widths, trayWidth) {
     },
   };
   load('  let dragIndex = null;', "  const infoPanel = find('#info');", '', context);
+  Object.assign(context, load('  // indexes shift', '  const SESSIONS_STORAGE_KEY', 'changeEntries', context));
   return { handlers, nodes, chips, context, commits: () => commits,
     start: (index = 0) => handlers.dragstart({ target: { closest: () => chips[index] }, dataTransfer: { setData() {} } }),
   };
@@ -223,7 +224,7 @@ describe('Rotation', () => {
   test('swaps sizes with their radii and rewrites custom items', () => {
     const entries = [{ definition: catalogItem('Soda Can (330 ml)'), order: AS_DEFINED }, { definition: customDefinition('Can', [66, 115, 66], [0, 33, 0]), order: AS_DEFINED }];
     const { applyAction } = load('  function applyAction(index, action)', '  function toggle(key)', 'applyAction', {
-      ...shapes, entries, commit() {}, document: { activeElement: null },
+      ...shapes, entries, editing: null, commit() {}, document: { activeElement: null },
     });
     const seen = index => [Array.from(placed(entries[index]).size), Array.from(placed(entries[index]).round)];
     applyAction(0, 'tip');
@@ -243,9 +244,9 @@ describe('Rotation', () => {
 
 describe('Add and Edit', () => {
   test('reads radii in the size unit and links a changed radius to its partner', () => {
-    const fields = Object.fromEntries(Object.entries({ name: 'Can', size: '6.6 x 11.5 x 6.6 cm', unit: 'mm', x: '', y: '3.3', z: '' })
+    const fields = Object.fromEntries(Object.entries({ name: 'Can', size: '6.6 x 11.5 x 6.6 cm', unit: 'cm', x: '', y: '3.3', z: '' })
       .map(([key, value]) => [key, { value }]));
-    const { readCustomForm, customFormDefinition, validCustomSize, linkRound } = load('  // radii are in the size', "  customForm.addEventListener('focusin'", 'readCustomForm, customFormDefinition, validCustomSize, linkRound', {
+    const { readCustomForm, customFormDefinition, validCustomSize, linkRound, limitRound } = load('  // radii are in the menu', "  customForm.addEventListener('reset'", 'readCustomForm, customFormDefinition, validCustomSize, linkRound, limitRound', {
       ...shapes, customForm: { elements: fields }, parseSize, UNIT_FACTORS, isPositive,
     });
     const read = round => { if (round) ['x', 'y', 'z'].forEach((axis, index) => fields[axis].value = round[index]); return readCustomForm(); };
@@ -253,12 +254,72 @@ describe('Add and Edit', () => {
     assert.deepEqual(Array.from(read(['', '', '']).round), [0, 0, 0]);
     for (const round of [['-1', '-1', '-1'], ['0.1', '0', '1.2']]) assert.equal(validCustomSize(read(round)), false, round.join());
     const change = (axis, value) => { fields[axis].value = value; linkRound(['x', 'y', 'z'].indexOf(axis)); return ['x', 'y', 'z'].map(key => fields[key].value).join(); };
-    read(['', '', '12']);
+    read(['', '', '']);
     linkRound(-1);
-    assert.equal(change('x', '1'), '1,1,12');
-    assert.equal(change('z', '13'), '1,1,13');
-    assert.equal(change('y', ''), ',,13');
-    assert.equal(change('x', '13'), '13,,13');
+    assert.equal(change('z', '6'), ',,6');
+    assert.equal(change('x', '1'), '1,1,6');
+    assert.equal(change('x', '6'), '6,6,6');
+    assert.equal(change('x', '7'), '7,7,6');
+    assert.equal(change('x', '6'), '6,6,6');
+    // matching values keep the pair
+    assert.equal(change('y', '5'), '5,5,6');
+    assert.equal(change('z', '5'), '5,5,5');
+    assert.equal(change('x', '4'), '4,4,5');
+    // all 0 lets the next change pick the odd radius
+    assert.equal(change('z', ''), '4,4,');
+    assert.equal(change('x', ''), ',,');
+    assert.equal(change('y', '33'), ',33,');
+    assert.equal(change('x', '2'), '2,33,2');
+    // stepping past the limit stops there: 200 x 330 x 260 mm allows 100 for each radius
+    const limited = (axis, value) => { change(axis, value); limitRound(); return ['x', 'y', 'z'].map(key => fields[key].value).join(); };
+    Object.assign(fields, { size: { value: '200 x 330 x 260' }, unit: { value: 'mm' } });
+    read(['', '', '']);
+    linkRound(-1);
+    assert.equal(limited('z', '6'), ',,6');
+    assert.equal(limited('x', '100'), '100,100,6');
+    assert.equal(limited('x', '101'), '100,100,6');
+    assert.equal(limited('z', '150'), '100,100,100');
+    assert.equal(limited('z', '90'), '100,100,90');
+    assert.equal(limited('x', '-5'), '0,0,90');
+    assert.equal(limited('x', '-0'), '0,0,90');
+    assert.equal(limited('x', '100'), '100,100,90');
+    // the odd radius may reach half of the other two sizes, the pair half of the smallest
+    Object.assign(fields, { size: { value: '330 x 400 x 260' }, unit: { value: 'cm' } });
+    assert.equal(limited('z', '200'), '100,100,165');
+    assert.equal(limited('x', '150'), '130,130,165');
+  });
+
+  test('moves a typed unit to the menu and converts on a unit change', () => {
+    const fields = Object.fromEntries(['size', 'unit', 'x', 'y', 'z'].map(key => [key, { value: '' }]));
+    const { takeUnit, setUnit } = load('  // radii are in the menu', "  customForm.addEventListener('reset'", 'takeUnit, setUnit', {
+      ...shapes, customForm: { elements: fields }, parseSize, UNIT_FACTORS, isPositive,
+    });
+    const form = () => [fields.size.value, fields.unit.value, ...['x', 'y', 'z'].map(key => fields[key].value)].join(' | ');
+    Object.assign(fields, { size: { value: '200x330 x 260mm' }, unit: { value: 'mm' }, x: { value: '100' }, y: { value: '100' }, z: { value: '6' } });
+    takeUnit();
+    assert.equal(form(), '200 x 330 x 260 | mm | 100 | 100 | 6');
+    setUnit('mm', 'cm');
+    assert.equal(form(), '20 x 33 x 26 | cm | 10 | 10 | 0.6');
+    setUnit('cm', 'in');
+    setUnit('in', 'mm');
+    assert.equal(form(), '200 x 330 x 260 | mm | 100 | 100 | 6');
+    // radii follow the menu, so a unit typed into the size converts them too
+    fields.size.value = '20 x 33 x 26 cm';
+    takeUnit();
+    assert.equal(form(), '20 x 33 x 26 | cm | 10 | 10 | 0.6');
+    // mixed units end in the last one, so a typo stands out
+    fields.size.value = '200mm x 330m x 260 mm';
+    takeUnit();
+    assert.equal(form(), '200 x 330000 x 260 | mm | 100 | 100 | 6');
+    fields.size.value = '12in x 4.5in x 30cm';
+    takeUnit();
+    assert.equal(form(), '30.48 x 11.43 x 30 | cm | 10 | 10 | 0.6');
+    fields.size.value = '2 x 3 x 4 feet';
+    takeUnit();
+    assert.equal(fields.unit.value, 'ft');
+    // no unit typed leaves the form alone
+    takeUnit();
+    assert.equal(fields.unit.value, 'ft');
   });
 
   test('shows the item as it stands and cancel restores it', () => {
@@ -269,10 +330,10 @@ describe('Add and Edit', () => {
       customForm: { elements: fields, reset() {}, dispatchEvent() { entry.definition = context.customFormDefinition(context.readCustomForm()); } },
       closePopovers() {}, find: () => ({ click() {} }), setEditing(state) { context.editing = state; }, Event: class {}, commit() {},
     };
-    Object.assign(context, load('  // radii are in the size', "  customForm.addEventListener('focusin'", 'readCustomForm, customFormDefinition, ROUND_AXES', context));
+    Object.assign(context, load('  // radii are in the menu', "  customForm.addEventListener('reset'", 'readCustomForm, customFormDefinition, ROUND_AXES', context));
     const { startEditing, cancelEditing } = load('  function startEditing(', "  customForm.addEventListener('submit'", 'startEditing, cancelEditing', context);
     startEditing(0);
-    assert.deepEqual(['size', 'x', 'y', 'z'].map(key => fields[key].value), ['66 x 66 x 115 mm', '', '', 33]);
+    assert.deepEqual(['size', 'x', 'y', 'z'].map(key => fields[key].value), ['66 x 66 x 115', '', '', 33]);
     assert.equal(entry.definition.key, 'custom:Soda Can (330 ml):66:66:115:0:0:33');
     assert.deepEqual(Array.from(entry.order), [0, 1, 2]);
     cancelEditing();
@@ -299,6 +360,32 @@ describe('Add and Edit', () => {
     assert.equal(entries[0].definition.name, 'B');
     undo();
     assert.deepEqual(entries.map(entry => entry.definition.name), ['Original A', 'B']);
+  });
+
+  test('removing and undoing keep the picked item', () => {
+    const entries = ['A', 'B', 'C'].map(name => ({ definition: { name } })), [, , c] = entries;
+    let undo;
+    const context = { entries, editing: null, pickedIndex: 2, closePopovers() {}, commit() {}, toast(message, callback) { undo = callback; } };
+    const { removeEntries } = load('  function removeEntries(start, count)', '  const SESSIONS_STORAGE_KEY', 'removeEntries', context);
+    removeEntries(0, 1);
+    assert.equal(entries[context.pickedIndex], c);
+    undo();
+    assert.equal(entries[context.pickedIndex], c);
+    removeEntries(2, 1);
+    assert.equal(context.pickedIndex, null);
+  });
+
+  test('turning the edited item shows its new size in the form', () => {
+    const entries = [{ definition: customDefinition('Can', [66, 115, 66], [0, 33, 0]), order: AS_DEFINED }];
+    const fields = Object.fromEntries(['name', 'size', 'unit', 'x', 'y', 'z'].map(key => [key, { value: '' }]));
+    let previews = 0, commits = 0;
+    const context = { ...shapes, entries, editing: { index: 0 }, customForm: { elements: fields, dispatchEvent() { previews++; } }, Event: class {},
+      commit() { commits++; }, document: { activeElement: null } };
+    Object.assign(context, load('  // radii are in the menu', "  customForm.addEventListener('reset'", 'ROUND_AXES', context));
+    Object.assign(context, load('  function fillCustomForm(', '  function cancelEditing(', 'fillCustomForm', context));
+    load('  function applyAction(index, action)', '  function toggle(key)', 'applyAction', context).applyAction(0, 'tip');
+    assert.deepEqual(['size', 'x', 'y', 'z'].map(key => fields[key].value), ['66 x 66 x 115', '', '', 33]);
+    assert.deepEqual([previews, commits], [1, 0]);
   });
 });
 
@@ -696,6 +783,7 @@ describe('Tray', () => {
       commit: () => commits++,
     };
     load('  let dragIndex = null;', "  const infoPanel = find('#info');", '', context);
+    Object.assign(context, load('  // indexes shift', '  const SESSIONS_STORAGE_KEY', 'changeEntries', context));
     const start = index => handlers.dragstart({ target: { closest: () => chips[index] }, dataTransfer: { setData() {} } });
     const event = (clientX, clientY) => ({ clientX, clientY, preventDefault() {}, dataTransfer: {} });
     start(0);
@@ -836,30 +924,67 @@ describe('Labels', () => {
 });
 
 describe('Sessions', () => {
-  test('keep the save target after a failed rename', async () => {
-    const input = { handlers: {}, focus() {}, select() {}, addEventListener(event, fn) { this.handlers[event] = fn; } };
-    const form = { elements: { name: { value: 'A' } } };
-    const calls = [], errors = [];
-    let rendered;
-    const { startRename } = load('  function startRename', "  sessionList.addEventListener", 'startRename', {
-      document: { createElement: () => input }, sessionForm: form,
-      sessions: { async rename(name, newName) {
-        calls.push([name, newName]);
-        if (newName === 'B') throw new Error('A session with that name already exists');
-        return [{ name: newName }];
-      } },
-      renderSessions: list => { rendered = list; }, toast: message => errors.push(message),
-    });
-    startRename({ querySelector: () => ({ replaceWith() {} }) }, 'A');
+  const settle = () => new Promise(resolve => setImmediate(resolve));
+  // every store call waits until the test settles it
+  function sessionsWith(input) {
+    const calls = [], toasts = [], list = { innerHTML: '' };
+    const call = (...args) => new Promise((resolve, reject) => calls.push({ args, resolve, reject }));
+    const store = { label: '', list: () => call('list'), save: session => call('save', session.name), rename: (name, newName) => call('rename', name, newName), remove: name => call('remove', name) };
+    const context = {
+      sessionList: list, sessionForm: { elements: { name: { value: 'A' }, save: {} } }, authForm: {}, signOutButton: {}, find: () => ({}),
+      auth: { read: () => null }, localSessions: store, accountSessions: store, toast: message => toasts.push(message),
+      escapeHtml: text => text, formatDate: () => '', ICONS: {}, URLSearchParams, document: { createElement: () => input },
+    };
+    Object.assign(context, load('  // the list shows from memory', '  // PKCE', 'changeSessions', context));
+    Object.assign(context, load('  function startRename', '  sessionList.addEventListener', 'startRename', context));
+    const shown = () => [...list.innerHTML.matchAll(/data-name="([^"]*)"/g)].map(match => match[1]).join() || list.innerHTML.replace(/<[^>]+>/g, '');
+    return { context, calls, toasts, shown };
+  }
+  const session = name => ({ name, query: '', savedAt: 0 });
+
+  test('show changes at once and keep them over an older load', async () => {
+    const { context, calls, toasts, shown } = sessionsWith();
+    assert.equal(shown(), 'Loading…');
+    context.changeSessions([session('A')], store => store.save(session('A')));
+    assert.equal(shown(), 'A');
+    await settle();
+    calls[0].resolve([]);
+    await settle();
+    assert.equal(shown(), 'A');
+    // the save waits for the load before it, then the list reloads
+    assert.deepEqual(calls[1].args, ['save', 'A']);
+    calls[1].resolve();
+    await settle();
+    calls[2].resolve([session('A'), session('B')]);
+    await settle();
+    assert.equal(shown(), 'A,B');
+    // a failed change says why and shows what the store has
+    context.changeSessions([session('A')], store => store.remove('B'));
+    assert.equal(shown(), 'A');
+    await settle();
+    calls[3].reject(new Error('offline'));
+    await settle();
+    calls[4].resolve([session('A'), session('B')]);
+    await settle();
+    assert.deepEqual(toasts, ['offline']);
+    assert.equal(shown(), 'A,B');
+  });
+
+  test('rename keeps the save target and refuses a taken name', async () => {
+    const input = { handlers: {}, focus() {}, select() {}, addEventListener(event, handler) { this.handlers[event] = handler; } };
+    const { context, calls, toasts, shown } = sessionsWith(input);
+    await settle();
+    calls[0].resolve([session('A'), session('B')]);
+    await settle();
+    context.startRename({ querySelector: () => ({ replaceWith() {} }) }, 'A');
     input.value = 'B';
-    await input.handlers.blur();
-    assert.equal(form.elements.name.value, 'A');
-    assert.equal(rendered, undefined);
-    assert.equal(errors.length, 1);
+    input.handlers.blur();
+    assert.deepEqual([toasts, context.sessionForm.elements.name.value, calls.length], [['A session with that name already exists'], 'A', 1]);
     input.value = 'C';
-    await input.handlers.blur();
-    assert.equal(form.elements.name.value, 'C');
-    assert.deepEqual(rendered, [{ name: 'C' }]);
-    assert.deepEqual(calls, [['A', 'B'], ['A', 'C']]);
+    input.handlers.blur();
+    assert.equal(context.sessionForm.elements.name.value, 'C');
+    assert.equal(shown(), 'C,B');
+    await settle();
+    assert.deepEqual(calls[1].args, ['rename', 'A', 'C']);
   });
 });
